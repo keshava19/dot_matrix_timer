@@ -1,25 +1,28 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-const Color _neon = Color(0xFF39FF14);
-const Color _gray = Color(0xFF2E2E2E);
-const int _dotCount = 60;
-const int _columns = 6;
 
-enum _Phase { idle, running, finished }
+
+const int cols = 6;
+const int rows = 10;
+const Color neon = Color(0xFF39FF14);
+const Color offColor = Color(0xFF1C1C1C);
+const Duration holdToEnd = Duration(milliseconds: 700);
+const Duration endBlink = Duration(seconds: 8);
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({
     super.key,
-    this.initialStartIndex,
-    this.initialStartMs,
+    this.initialEndMs,
+    this.initialTotal,
   });
 
-  final int? initialStartIndex;
-  final int? initialStartMs;
+  final int? initialEndMs;
+  final int? initialTotal;
 
   @override
   State<TimerScreen> createState() => _TimerScreenState();
@@ -30,22 +33,33 @@ class _TimerScreenState extends State<TimerScreen>
   static const MethodChannel _screenChannel =
       MethodChannel('dot_matrix_timer/screen');
 
+  final GlobalKey _gridKey = GlobalKey();
+
+  late final AnimationController _tick =
+      AnimationController(vsync: this, duration: const Duration(seconds: 1))
+        ..repeat()
+        ..addListener(_onTick);
+
+  // Timer model (mirrors dot_timer.dart)
+  int total = 0; // minutes chosen (active dots)
+  int preview = 0;
+  DateTime? end;
+  DateTime? endingSince;
+  DateTime? holdSince;
+  bool calm = false;
+
   static const String _prefActiveKey = 'timer_active';
-  static const String _prefStartIndexKey = 'timer_start_index';
-  static const String _prefStartMsKey = 'timer_start_ms';
+  static const String _prefEndMsKey = 'timer_end_ms';
+  static const String _prefTotalKey = 'timer_total';
 
-  _Phase _phase = _Phase.idle;
-  int? _startIndex;
-  DateTime? _startTime;
-  Duration _duration = Duration.zero;
+  int get remainingMs =>
+      end == null ? 0 : math.max(0, end!.difference(DateTime.now()).inMilliseconds);
 
-  Timer? _clock;
-  Timer? _finishHold;
+  bool get running => end != null && endingSince == null;
+
+  bool _notificationsAllowed = false;
   Timer? _dimTimer;
-
-  late final AnimationController _pulseController;
-  late final AnimationController _blinkController;
-  late final Animation<double> _blinkOpacity;
+  int _lastNotifyMs = 0;
 
   @override
   void initState() {
@@ -61,191 +75,237 @@ class _TimerScreenState extends State<TimerScreen>
     });
     _requestNotificationPermission();
 
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    );
-    _pulseController.addListener(_onPulseTick);
-    _blinkController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-    _blinkOpacity = CurvedAnimation(
-      parent: _blinkController,
-      curve: Curves.easeInOut,
-    );
-    _blinkController.addListener(_onBlinkTick);
-    final initialIndex = widget.initialStartIndex;
-    final initialMs = widget.initialStartMs;
-    if (initialIndex != null && initialMs != null) {
-      _startIndex = initialIndex;
-      _startTime = DateTime.fromMillisecondsSinceEpoch(initialMs);
-      _duration = Duration(minutes: initialIndex + 1);
-      _phase = _Phase.running;
-      // Kick off side effects after the first frame.
+    final ie = widget.initialEndMs;
+    final it = widget.initialTotal;
+    if (ie != null && it != null) {
+      final e = DateTime.fromMillisecondsSinceEpoch(ie);
+      if (DateTime.now().isBefore(e)) {
+        end = e;
+        total = it;
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _phase != _Phase.running) return;
-        _pulseController.repeat(reverse: true);
-        _startClock();
+        if (!mounted || end == null) return;
         _setKeepScreenOn(true);
         _setLowRefresh(true);
         _scheduleDim();
-        _showNotificationForTimer();
+        _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
       });
     } else {
       _restorePersisted();
     }
   }
 
-  void _onBlinkTick() {
-    if (_phase == _Phase.finished && mounted) {
-      setState(() {});
-    }
-  }
-
-  void _onPulseTick() {
-    if (_phase == _Phase.running && mounted) {
-      setState(() {});
-    }
-  }
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _clock?.cancel();
-    _finishHold?.cancel();
+    _tick.dispose();
     _dimTimer?.cancel();
-    _pulseController.dispose();
-    _blinkController.dispose();
     super.dispose();
   }
 
-  Duration get _remaining {
-    if (_phase != _Phase.running || _startTime == null) {
-      return _duration;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (end != null) {
+        final now = DateTime.now();
+        if (!now.isBefore(end!) && endingSince == null) {
+          endingSince = end;
+          HapticFeedback.vibrate();
+        }
+        setState(() {});
+        _setKeepScreenOn(true);
+        _setLowRefresh(true);
+        _scheduleDim();
+        if (_notificationsAllowed) _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+      }
     }
-    final elapsed = DateTime.now().difference(_startTime!);
-    final rem = _duration - elapsed;
-    return rem.isNegative ? Duration.zero : rem;
   }
 
-  int get _passedMinutes {
-    if (_phase != _Phase.running || _startTime == null) return 0;
-    return DateTime.now().difference(_startTime!).inMinutes.clamp(0, _duration.inMinutes);
-  }
-
-  int get _currentDotIndex {
-    if (_startIndex == null) return -1;
-    final idx = _startIndex! - _passedMinutes;
-    if (idx < 0) return 0;
-    if (idx > _startIndex!) return _startIndex!;
-    return idx;
-  }
-
-  bool _isInTimer(int index) {
-    if (_startIndex == null) return false;
-    return index <= _startIndex!;
-  }
-
-  bool _notificationsAllowed = false;
-
-
-
-  void _startAt(int index) {
-    if (_phase == _Phase.running) return;
-    _finishHold?.cancel();
-    _blinkController.stop();
-    _blinkController.reset();
+  Future<void> _restorePersisted() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool(_prefActiveKey) ?? false)) return;
+    final em = prefs.getInt(_prefEndMsKey);
+    final tt = prefs.getInt(_prefTotalKey);
+    if (em == null || tt == null) {
+      await _clearPersisted();
+      return;
+    }
+    final e = DateTime.fromMillisecondsSinceEpoch(em);
+    if (!DateTime.now().isBefore(e)) {
+      // Possibly finished while away: dismiss to idle.
+      await _clearPersisted();
+      return;
+    }
+    if (!mounted) return;
     setState(() {
-      _startIndex = index;
-      _startTime = DateTime.now();
-      _duration = Duration(minutes: index + 1);
-      _phase = _Phase.running;
+      end = e;
+      total = tt;
+      endingSince = null;
+      preview = 0;
+      holdSince = null;
     });
-    _pulseController.repeat(reverse: true);
-    _startClock();
     _setKeepScreenOn(true);
     _setLowRefresh(true);
     _scheduleDim();
-    _persistStart();
-    _showNotificationForTimer();
-    HapticFeedback.lightImpact();
+    _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
   }
 
-  void _startClock() {
-    _clock?.cancel();
-    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      if (_phase != _Phase.running) return;
-      if (_remaining <= Duration.zero) {
-        _finish();
-      } else {
-        setState(() {});
-        _showNotificationForTimer(remaining: _remaining);
+  Future<void> _persistStart() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefActiveKey, true);
+    await prefs.setInt(_prefEndMsKey, end!.millisecondsSinceEpoch);
+    await prefs.setInt(_prefTotalKey, total);
+  }
+
+  Future<void> _clearPersisted() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefActiveKey);
+    await prefs.remove(_prefEndMsKey);
+    await prefs.remove(_prefTotalKey);
+  }
+
+  void _onTick() {
+    final now = DateTime.now();
+    if (endingSince != null) {
+      if (now.difference(endingSince!) > endBlink) {
+        _reset();
       }
-    });
+      return;
+    }
+    if (end == null) return;
+    if (!now.isBefore(end!)) {
+      endingSince = now;
+      HapticFeedback.vibrate();
+    } else if (holdSince != null && now.difference(holdSince!) >= holdToEnd) {
+      HapticFeedback.heavyImpact();
+      _reset();
+    }
+
+    // Throttled notification update.
+    if (_notificationsAllowed && now.millisecondsSinceEpoch - _lastNotifyMs >= 1000) {
+      _lastNotifyMs = now.millisecondsSinceEpoch;
+      _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+    }
   }
 
-  void _finish() {
-    if (_phase != _Phase.running) return;
-    _clock?.cancel();
-    _pulseController.stop();
-    setState(() => _phase = _Phase.finished);
-    _blinkController.repeat(reverse: true);
-    _cancelNotification();
-    HapticFeedback.heavyImpact();
-    // Stop blinking after a few seconds, then auto-reset to idle.
-    _finishHold?.cancel();
-    _finishHold = Timer(const Duration(seconds: 8), () {
-      if (mounted && _phase == _Phase.finished) {
-        _endTimer();
-      }
-    });
+  // Interaction helpers
+  int _dotAt(Offset global) {
+    final box = _gridKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return 0;
+    final p = box.globalToLocal(global);
+    final s = box.size;
+    if (p.dx < 0 || p.dy < 0 || p.dx > s.width || p.dy > s.height) return 0;
+    final c = (p.dx / (s.width / cols)).floor().clamp(0, cols - 1);
+    final r = (p.dy / (s.height / rows)).floor().clamp(0, rows - 1);
+    return r * cols + c + 1;
   }
 
-  void _endTimer() {
-    _clock?.cancel();
-    _finishHold?.cancel();
-    _dimTimer?.cancel();
-    _dimTimer = null;
-    _pulseController.stop();
-    _blinkController.stop();
-    _blinkController.reset();
+  void _scrub(Offset g) {
+    final n = _dotAt(g);
+    if (n != preview) {
+      if (n > 0) HapticFeedback.selectionClick();
+      setState(() => preview = n);
+    }
+  }
+
+  void _handlePointerDown(PointerDownEvent e) {
+    if (endingSince != null) {
+      _reset();
+      return;
+    }
+    if (end != null) {
+      holdSince = DateTime.now();
+    } else {
+      _scrub(e.position);
+    }
+  }
+
+  void _handlePointerMove(PointerMoveEvent e) {
+    if (end == null) _scrub(e.position);
+  }
+
+  void _handlePointerUp(PointerEvent e) {
+    if (end != null) {
+      holdSince = null;
+    } else if (preview > 0 && e is PointerUpEvent) {
+      _beginTimer(preview);
+    } else {
+      setState(() => preview = 0);
+    }
+  }
+
+  void _handlePointerCancel(PointerCancelEvent e) {
+    if (end != null) {
+      holdSince = null;
+    } else {
+      setState(() => preview = 0);
+    }
+  }
+
+  Future<void> _beginTimer(int minutes) async {
+    final e = DateTime.now().add(Duration(minutes: minutes));
     setState(() {
-      _phase = _Phase.idle;
-      _startIndex = null;
-      _startTime = null;
-      _duration = Duration.zero;
+      total = minutes;
+      end = e;
+      preview = 0;
+      endingSince = null;
+      holdSince = null;
     });
+    await _persistStart();
+    _setKeepScreenOn(true);
+    _setLowRefresh(true);
+    _scheduleDim();
+    _showNotificationForTimer(remaining: Duration(minutes: minutes));
+    HapticFeedback.mediumImpact();
+  }
+
+  void _reset() {
+    setState(() {
+      total = 0;
+      preview = 0;
+      end = null;
+      endingSince = null;
+      holdSince = null;
+    });
+    _clearPersisted();
+    _cancelNotification();
     _setKeepScreenOn(false);
     _setLowRefresh(false);
     _setDimmed(false);
-    _clearPersisted();
-    _cancelNotification();
+    _dimTimer?.cancel();
   }
 
+  // Platform channel helpers
   Future<void> _setKeepScreenOn(bool on) async {
     try {
       await _screenChannel.invokeMethod('setKeepScreenOn', {'on': on});
-    } catch (_) {
-      // Platform not supported; ignore.
-    }
+    } catch (_) {}
   }
 
   Future<void> _setLowRefresh(bool on) async {
     try {
       await _screenChannel.invokeMethod('setLowRefresh', {'on': on});
-    } catch (_) {
-      // Platform not supported; ignore.
-    }
+    } catch (_) {}
   }
 
   Future<void> _setDimmed(bool on) async {
     try {
       await _screenChannel.invokeMethod('setDimmed', {'on': on});
-    } catch (_) {
-      // Platform not supported; ignore.
-    }
+    } catch (_) {}
+  }
+
+  void _scheduleDim() {
+    _dimTimer?.cancel();
+    _dimTimer = Timer(const Duration(seconds: 30), () => _setDimmed(true));
+    _screenChannel.invokeMethod<int>('getScreenTimeout').then((timeout) {
+      if (timeout != null && timeout > 0 && mounted && running) {
+        _dimTimer?.cancel();
+        _dimTimer = Timer(
+          Duration(milliseconds: (timeout * 0.9).round()),
+          () => _setDimmed(true),
+        );
+      }
+    }).catchError((_) {});
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -257,248 +317,133 @@ class _TimerScreenState extends State<TimerScreen>
     }
   }
 
-  Future<void> _showNotificationForTimer({Duration? remaining}) async {
+  Future<void> _showNotificationForTimer({Duration? remaining, DateTime? end, int? total}) async {
     if (!_notificationsAllowed) return;
-    final r = remaining ?? _remaining;
-    final mm = r.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final ss = r.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final total = _duration.inSeconds;
-    final progress = (total - r.inSeconds).clamp(0, total);
+    final e = end ?? this.end;
+    if (e == null) return;
+    final t = total ?? this.total;
+    final remMs = remaining?.inMilliseconds ?? remainingMs;
+    final remSec = (remMs / 1000).ceil().clamp(0, t * 60);
+    final mm = (remSec ~/ 60).toString().padLeft(2, '0');
+    final ss = (remSec % 60).toString().padLeft(2, '0');
+    final totalSec = t * 60;
+    final progress = (totalSec - remSec).clamp(0, totalSec);
     try {
       await _screenChannel.invokeMethod('showTimerNotification', {
         'content': 'Remaining $mm:$ss',
-        'total': total,
+        'total': totalSec,
         'progress': progress,
       });
-    } catch (_) {
-      // Platform not supported; ignore.
-    }
+    } catch (_) {}
   }
 
   Future<void> _cancelNotification() async {
     if (!_notificationsAllowed) return;
     try {
       await _screenChannel.invokeMethod('cancelTimerNotification');
-    } catch (_) {
-      // Platform not supported; ignore.
-    }
+    } catch (_) {}
   }
-
-  void _scheduleDim() {
-    _dimTimer?.cancel();
-    _dimTimer = Timer(const Duration(seconds: 30), () {
-      _setDimmed(true);
-    });
-    // Prefer system timeout if available (override the default above).
-    _screenChannel.invokeMethod<int>('getScreenTimeout').then((timeout) {
-      if (timeout != null && timeout > 0 && mounted && _phase == _Phase.running) {
-        _dimTimer?.cancel();
-        _dimTimer = Timer(
-          Duration(milliseconds: (timeout * 0.9).round()),
-          () {
-            _setDimmed(true);
-          },
-        );
-      }
-    }).catchError((_) {});
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _phase == _Phase.running) {
-      if (_remaining <= Duration.zero) {
-        _finish();
-      } else {
-        setState(() {});
-        _startClock();
-        _setKeepScreenOn(true);
-        _setLowRefresh(true);
-        _scheduleDim();
-        _showNotificationForTimer();
-      }
-    }
-  }
-
-  Future<void> _restorePersisted() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!(prefs.getBool(_prefActiveKey) ?? false)) return;
-    final si = prefs.getInt(_prefStartIndexKey);
-    final sm = prefs.getInt(_prefStartMsKey);
-    if (si == null || sm == null) {
-      await _clearPersisted();
-      return;
-    }
-    final elapsed = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(sm));
-    final duration = Duration(minutes: si + 1);
-    if (elapsed >= duration) {
-      await _clearPersisted();
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _startIndex = si;
-      _startTime = DateTime.fromMillisecondsSinceEpoch(sm);
-      _duration = duration;
-      _phase = _Phase.running;
-    });
-    _pulseController.repeat(reverse: true);
-    _startClock();
-    _setKeepScreenOn(true);
-    _setLowRefresh(true);
-    _scheduleDim();
-    _showNotificationForTimer();
-  }
-
-  Future<void> _persistStart() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefActiveKey, true);
-    await prefs.setInt(_prefStartIndexKey, _startIndex!);
-    await prefs.setInt(_prefStartMsKey, _startTime!.millisecondsSinceEpoch);
-  }
-
-  Future<void> _clearPersisted() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefActiveKey);
-    await prefs.remove(_prefStartIndexKey);
-    await prefs.remove(_prefStartMsKey);
-  }
-
-  Color _dotColor(int index, int passed, int current) {
-    if (_phase == _Phase.idle) {
-      return _neon.withOpacity(0.45);
-    }
-    // not in this timer (before start index) -> grayed out
-    if (!_isInTimer(index)) {
-      return _gray;
-    }
-    // finished: all in-timer dots use blink opacity (handled by caller) base neon
-    if (_phase == _Phase.finished) {
-      return _neon;
-    }
-    // running (counting down: higher indices pass first)
-    if (index > current) {
-      return _neon.withOpacity(0.35); // passed -> dim
-    }
-    if (index == current) {
-      return _neon; // active (pulse applied by animation)
-    }
-    return _neon; // upcoming
-  }
-
-  double _dotOpacity(int index, int passed, int current) {
-    if (_phase == _Phase.finished && _isInTimer(index)) {
-      return 0.2 + 0.8 * _blinkOpacity.value;
-    }
-    if (_phase == _Phase.running && index == current) {
-      return 0.4 + 0.6 * _pulseController.value;
-    }
-    return 1.0;
-  }
-
-  String _formatDuration(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  String get _timerText {
-    if (_phase == _Phase.idle) return '60:00';
-    if (_phase == _Phase.finished) return '00:00';
-    return _formatDuration(_remaining);
-  }
-
 
   @override
   Widget build(BuildContext context) {
-    final passed = _passedMinutes;
-    final current = _currentDotIndex;
+    calm = MediaQuery.of(context).disableAnimations;
+    final idle = end == null && preview == 0;
+
+    final hint = endingSince != null
+        ? 'Tap to dismiss'
+        : end != null
+            ? 'Hold to end'
+            : 'Tap a dot to set minutes';
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onLongPress: _endTimer,
+      body: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: _handlePointerDown,
+        onPointerMove: _handlePointerMove,
+        onPointerUp: _handlePointerUp,
+        onPointerCancel: _handlePointerCancel,
         child: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                flex: 15,
-                child: Center(
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge(
-                        [_pulseController, _blinkController]),
-                    builder: (context, _) {
-                      return FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          _timerText,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 52,
-                            fontWeight: FontWeight.bold,
-                            color: _neon,
-                            letterSpacing: 4,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              Expanded(
-                flex: 80,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    const hSpacing = 10.0;
-                    final cellWidth =
-                        (constraints.maxWidth - (_columns - 1) * hSpacing) /
-                            _columns;
-                    final rows = (_dotCount / _columns).ceil();
-                    final neededHeight = rows * cellWidth;
-                    var vSpacing =
-                        (constraints.maxHeight - neededHeight) / (rows - 1);
-                    if (!vSpacing.isFinite || vSpacing < hSpacing) {
-                      vSpacing = hSpacing;
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: GridView.count(
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: _columns,
-                        mainAxisSpacing: vSpacing,
-                        crossAxisSpacing: hSpacing,
-                        childAspectRatio: 1.0,
-                        children: List.generate(_dotCount, (i) {
-                          final isActive = _phase == _Phase.running &&
-                              i == current;
-                          return _Dot(
-                            color: _dotColor(i, passed, current),
-                            opacity: _dotOpacity(i, passed, current),
-                            onTap: () => _startAt(i),
-                            enabled: _phase != _Phase.running,
-                            halo: isActive,
-                          );
-                        }),
-                      ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              children: [
+                const SizedBox(height: 28),
+                AnimatedBuilder(
+                  animation: _tick,
+                  builder: (_, _) {
+                    const base = TextStyle(
+                      fontSize: 56,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 4,
+                      fontFeatures: [FontFeature.tabularFigures()],
                     );
+                    if (end == null && preview > 0) {
+                      return Text(
+                        '$preview min',
+                        style: base.copyWith(color: neon),
+                      );
+                    }
+                    final s = (remainingMs / 1000).ceil();
+                    final mStr = (s ~/ 60).toString().padLeft(2, '0');
+                    final secStr = (s % 60).toString().padLeft(2, '0');
+                    final a = idle ? 0.25 : 1.0;
+                    return Text.rich(TextSpan(children: [
+                      TextSpan(text: mStr, style: base.copyWith(color: neon.withValues(alpha: a))),
+                      TextSpan(text: ':', style: base.copyWith(color: neon.withValues(alpha: a * 0.5))),
+                      TextSpan(text: secStr, style: base.copyWith(color: neon.withValues(alpha: a * 0.6))),
+                    ]));
                   },
                 ),
-              ),
-              Expanded(
-                flex: 5,
-                child: Center(
-                  child: Text(
-                    'Press a dot to start  •  Hold screen to end',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: _neon.withOpacity(0.6),
+                const SizedBox(height: 28),
+                Expanded(
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: cols / rows,
+                      child: CustomPaint(
+                        key: _gridKey,
+                        painter: _GridPainter(this, _tick),
+                      ),
                     ),
-                    textAlign: TextAlign.center,
                   ),
                 ),
-              ),
-            ],
+                // Hold-to-end progress line
+                if (holdSince != null && end != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: AnimatedBuilder(
+                      animation: _tick,
+                      builder: (_, _) {
+                        final p = (DateTime.now()
+                                .difference(holdSince!)
+                                .inMilliseconds /
+                            holdToEnd.inMilliseconds)
+                            .clamp(0.0, 1.0);
+                        return Container(
+                          height: 2,
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: p,
+                            child: Container(color: neon),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                AnimatedBuilder(
+                  animation: _tick,
+                  builder: (_, _) => Text(
+                    hint,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: neon.withValues(alpha: 0.55),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -506,53 +451,102 @@ class _TimerScreenState extends State<TimerScreen>
   }
 }
 
-class _Dot extends StatelessWidget {
-  const _Dot({
-    required this.color,
-    required this.opacity,
-    required this.onTap,
-    required this.enabled,
-    this.halo = false,
-  });
-
-  final Color color;
-  final double opacity;
-  final VoidCallback onTap;
-  final bool enabled;
-  final bool halo;
+class _GridPainter extends CustomPainter {
+  _GridPainter(this.state, Listenable repaint) : super(repaint: repaint);
+  final _TimerScreenState state;
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Opacity(
-        opacity: opacity.clamp(0.0, 1.0),
-        child: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: color,
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.55),
-                blurRadius: 8,
-                spreadRadius: 1,
-              ),
-              if (halo)
-                BoxShadow(
-                  color: const Color(0xFF39FF14).withOpacity(0.45),
-                  blurRadius: 22,
-                  spreadRadius: 6,
-                ),
-              if (halo)
-                BoxShadow(
-                  color: const Color(0xFF39FF14).withOpacity(0.25),
-                  blurRadius: 40,
-                  spreadRadius: 12,
-                ),
-            ],
-          ),
-        ),
-      ),
+  void paint(Canvas c, Size s) {
+    final now = DateTime.now();
+    final cell = s.width / cols;
+    final r = cell * 0.40;
+
+    final remMs = state.remainingMs;
+    final running = state.end != null && state.endingSince == null;
+    final cur = running ? (remMs / 60000).ceil() - 1 : -1;
+    final inMin = remMs % 60000 == 0 ? 60000 : remMs % 60000;
+    final minuteFrac = running ? 1 - inMin / 60000 : 0.0;
+
+    double flash = 1;
+    if (state.endingSince != null) {
+      final e = now.difference(state.endingSince!).inMilliseconds / 1000.0;
+      flash = 0.12 +
+          0.88 * math.pow(0.5 + 0.5 * math.cos(2 * math.pi * e), 0.6);
+    }
+    final pulse = state.calm
+        ? 1.0
+        : 0.5 + 0.5 * math.sin(2 * math.pi * now.millisecondsSinceEpoch / 1000.0 / 2.0);
+
+    for (var i = 0; i < cols * rows; i++) {
+      final o = Offset((i % cols + 0.5) * cell, (i ~/ cols + 0.5) * cell);
+      if (state.endingSince != null) {
+        i < state.total ? _lit(c, o, r, flash) : _off(c, o, r);
+      } else if (state.end != null) {
+        if (i < cur) {
+          _lit(c, o, r, 1);
+        } else if (i == cur) {
+          _current(c, o, r, pulse, minuteFrac);
+        } else if (i < state.total) {
+          _passed(c, o, r);
+        } else {
+          _off(c, o, r);
+        }
+      } else {
+        i < state.preview ? _lit(c, o, r, 0.6) : _off(c, o, r);
+      }
+    }
+  }
+
+  void _off(Canvas c, Offset o, double r) =>
+      c.drawCircle(o, r * 0.55, Paint()..color = offColor);
+
+  void _lit(Canvas c, Offset o, double r, double a) {
+    c.drawCircle(
+      o,
+      r * 1.05,
+      Paint()
+        ..color = neon.withValues(alpha: 0.45 * a)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.45),
+    );
+    c.drawCircle(o, r, Paint()..color = neon.withValues(alpha: a));
+  }
+
+  void _passed(Canvas c, Offset o, double r) {
+    c.drawCircle(o, r, Paint()..color = neon.withValues(alpha: 0.08));
+    c.drawCircle(
+      o,
+      r - 0.75,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = neon.withValues(alpha: 0.30),
     );
   }
-}
+
+  void _current(Canvas c, Offset o, double r, double p, double frac) {
+    c.drawCircle(
+      o,
+      r * (1.15 + 0.45 * p),
+      Paint()
+        ..color = neon.withValues(alpha: 0.20 + 0.40 * p)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.6),
+    );
+    c.drawCircle(o, r, Paint()..color = neon.withValues(alpha: 0.75 + 0.25 * p));
+    final ring = Rect.fromCircle(center: o, radius: r * 1.22);
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..color = neon.withValues(alpha: 0.12);
+    c.drawArc(ring, 0, 2 * math.pi, false, track);
+    final fill = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..color = neon;
+    c.drawArc(ring, -math.pi / 2, 2 * math.pi * frac, false, fill);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GridPainter old) => true;
+} 

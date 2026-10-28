@@ -8,8 +8,8 @@ void main() {
     await tester.pumpWidget(const DotMatrixTimerApp());
     await tester.pump();
 
-    expect(find.text('60:00'), findsOneWidget);
-    expect(find.text('Press a dot to start  •  Hold screen to end'), findsOneWidget);
-    expect(find.byType(GridView), findsOneWidget);
+    expect(find.text('00:00'), findsOneWidget);
+    expect(find.text('Tap a dot to set minutes'), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
   });
 }

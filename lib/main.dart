@@ -5,29 +5,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'timer_screen.dart';
 
 const String _prefActiveKey = 'timer_active';
-const String _prefStartIndexKey = 'timer_start_index';
-const String _prefStartMsKey = 'timer_start_ms';
+const String _prefEndMsKey = 'timer_end_ms';
+const String _prefTotalKey = 'timer_total';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  int? initialStartIndex;
-  int? initialStartMs;
+  int? initialEndMs;
+  int? initialTotal;
 
   final prefs = await SharedPreferences.getInstance();
   if (prefs.getBool(_prefActiveKey) ?? false) {
-    final si = prefs.getInt(_prefStartIndexKey);
-    final sm = prefs.getInt(_prefStartMsKey);
-    if (si != null && sm != null) {
-      final elapsed = DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(sm));
-      final duration = Duration(minutes: si + 1);
-      if (elapsed < duration) {
-        initialStartIndex = si;
-        initialStartMs = sm;
+    final em = prefs.getInt(_prefEndMsKey);
+    final tt = prefs.getInt(_prefTotalKey);
+    if (em != null && tt != null) {
+      final e = DateTime.fromMillisecondsSinceEpoch(em);
+      if (DateTime.now().isBefore(e)) {
+        initialEndMs = em;
+        initialTotal = tt;
       } else {
         await prefs.remove(_prefActiveKey);
-        await prefs.remove(_prefStartIndexKey);
-        await prefs.remove(_prefStartMsKey);
+        await prefs.remove(_prefEndMsKey);
+        await prefs.remove(_prefTotalKey);
       }
     }
   }
@@ -41,20 +40,20 @@ Future<void> main() async {
     ),
   );
   runApp(DotMatrixTimerApp(
-    initialStartIndex: initialStartIndex,
-    initialStartMs: initialStartMs,
+    initialEndMs: initialEndMs,
+    initialTotal: initialTotal,
   ));
 }
 
 class DotMatrixTimerApp extends StatelessWidget {
   const DotMatrixTimerApp({
     super.key,
-    this.initialStartIndex,
-    this.initialStartMs,
+    this.initialEndMs,
+    this.initialTotal,
   });
 
-  final int? initialStartIndex;
-  final int? initialStartMs;
+  final int? initialEndMs;
+  final int? initialTotal;
 
   @override
   Widget build(BuildContext context) {
@@ -76,8 +75,8 @@ class DotMatrixTimerApp extends StatelessWidget {
         ),
       ),
       home: TimerScreen(
-        initialStartIndex: initialStartIndex,
-        initialStartMs: initialStartMs,
+        initialEndMs: initialEndMs,
+        initialTotal: initialTotal,
       ),
     );
   }
