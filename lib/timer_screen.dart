@@ -15,6 +15,7 @@ const Duration holdToEnd = Duration(milliseconds: 700);
 const Duration endFlash = Duration(seconds: 8);
 const Duration doneTimeout = Duration(seconds: 60);
 const Duration lateEnd = Duration(milliseconds: 1500);
+const Duration autoResetGrace = Duration(milliseconds: 1500);
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({
@@ -63,6 +64,7 @@ class _TimerScreenState extends State<TimerScreen>
   Timer? _dimTimer;
   int _lastNotifyMs = 0;
   bool _swallow = false;
+  DateTime? _lockedUntil;
 
   @override
   void initState() {
@@ -182,7 +184,7 @@ class _TimerScreenState extends State<TimerScreen>
     final now = DateTime.now();
     if (endingSince != null) {
       if (now.difference(endingSince!) > endFlash + doneTimeout) {
-        _reset();
+        _reset(auto: true);
       }
       return;
     }
@@ -229,6 +231,14 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   void _handlePointerDown(PointerDownEvent e) {
+    if (_lockedUntil != null) {
+      final lock = _lockedUntil!;
+      _lockedUntil = null;
+      if (DateTime.now().isBefore(lock)) {
+        _swallow = true;
+        return;
+      }
+    }
     if (endingSince != null) {
       _swallow = true;
       _reset();
@@ -286,8 +296,9 @@ class _TimerScreenState extends State<TimerScreen>
     HapticFeedback.mediumImpact();
   }
 
-  void _reset() {
+  void _reset({bool auto = false}) {
     final wasEnding = endingSince != null;
+    if (auto) _lockedUntil = DateTime.now().add(autoResetGrace);
     setState(() {
       total = 0;
       preview = 0;
