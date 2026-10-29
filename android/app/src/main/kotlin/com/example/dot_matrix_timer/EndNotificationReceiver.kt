@@ -11,7 +11,7 @@ import androidx.core.app.NotificationCompat
 
 class EndNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        val channelId = "dot_matrix_timer_end"
+        val channelId = "dot_matrix_timer_end_v2"
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(channelId, "Timer", NotificationManager.IMPORTANCE_DEFAULT)

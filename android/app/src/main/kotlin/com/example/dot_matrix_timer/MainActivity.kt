@@ -10,6 +10,7 @@ import android.content.res.AssetFileDescriptor
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.SoundPool
 import android.os.Build
 import android.provider.Settings
 import android.view.WindowManager
@@ -29,6 +30,9 @@ class MainActivity : FlutterActivity() {
 
     private var startPlayer: MediaPlayer? = null
     private var endPlayer: MediaPlayer? = null
+    private var soundPool: SoundPool? = null
+    private var startSoundId: Int = 0
+    private var soundsLoaded: Boolean = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -107,6 +111,10 @@ class MainActivity : FlutterActivity() {
                     }
                     "stopSound" -> {
                         stopSoundFade()
+                        result.success(null)
+                    }
+                    "preloadSounds" -> {
+                        preloadSounds()
                         result.success(null)
                     }
                     "scheduleEndNotification" -> {
@@ -229,25 +237,36 @@ class MainActivity : FlutterActivity() {
 
     private fun preparePlayer(assetName: String): MediaPlayer? {
         return try {
-            val afd: AssetFileDescriptor = assets.openFd("flutter_assets/assets/sounds/$assetName")
+            val resName = assetName.substringBeforeLast(".")
+            val resId = resources.getIdentifier(resName, "raw", packageName)
+            val afd: AssetFileDescriptor = if (resId != 0) {
+                resources.openRawResourceFd(resId)
+            } else {
+                assets.openFd("flutter_assets/assets/sounds/$assetName")
+            }
             val mp = MediaPlayer()
             mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
             afd.close()
             mp.setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
             )
             mp.prepare()
             mp
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("DotMatrixTimerAudio", "preparePlayer failed for $assetName", e)
             null
         }
     }
 
     private fun playSound(sfx: String) {
-        if (!soundEnabled()) return
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (!soundEnabled()) {
+            android.util.Log.w("DotMatrixTimerAudio", "playSound skipped: ringer not normal")
+            return
+        }
         try {
             if (sfx == "start") {
                 if (startPlayer == null) startPlayer = preparePlayer("start.wav")
@@ -261,6 +280,33 @@ class MainActivity : FlutterActivity() {
                 p.start()
             }
         } catch (_: Exception) {}
+    }
+
+    private fun preloadSounds() {
+        if (soundPool != null) return
+        try {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            soundPool = SoundPool.Builder().setMaxStreams(4).setAudioAttributes(attrs).build()
+            soundPool?.setOnLoadCompleteListener { _, sampleId, status ->
+                if (status == 0) {
+                    startSoundId = sampleId
+                    soundsLoaded = true
+                    android.util.Log.d("DotMatrixTimerAudio", "SoundPool loaded $sampleId")
+                }
+            }
+            val afd = try {
+                resources.openRawResourceFd(R.raw.start)
+            } catch (_: Exception) {
+                assets.openFd("flutter_assets/assets/sounds/start.wav")
+            }
+            startSoundId = soundPool?.load(afd, 1) ?: 0
+            afd.close()
+        } catch (e: Exception) {
+            android.util.Log.e("DotMatrixTimerAudio", "preloadSounds failed", e)
+        }
     }
 
     private fun stopSoundFade() {

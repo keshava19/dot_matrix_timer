@@ -5,7 +5,9 @@ Usage:  python3 tools/gen_sounds.py [output_dir]   (default: assets/sounds)
 Needs:  numpy
 
 start.wav  ~0.14 s  soft E5 blip, quiet confirmation (peak about -12 dBFS)
-end.wav    ~3.2 s   gentle ascending E major chime, E5 - G#5 - B5 - E6 (peak about -3 dBFS)
+end.wav    ~7.2 s   gentle ascending E major chime, E5 - G#5 - B5 - E6, played twice,
+                    4 s apart (each chime peaks at about -3 dBFS). The repeats start on
+                    flash peaks of the 1 Hz end-of-timer flash (0 s and 4 s).
 
 Both are 16-bit, 44.1 kHz, mono. Everything is synthesised, so there is no
 third-party licence to track.
@@ -17,6 +19,9 @@ from pathlib import Path
 import numpy as np
 
 SR = 44100
+END_REPEATS = 2        # how many times the chime plays
+END_INTERVAL_S = 4.0   # start-to-start spacing (chime is 3.2 s, so 0.8 s of silence between)
+END_FLASH_S = 8.0      # length of the app's flash phase; the file must fit inside it
 rng = np.random.default_rng(7)  # fixed seed: reproducible output
 
 
@@ -70,13 +75,28 @@ def make_start():
     return finish(x, peak_db=-12.0, fade_out_s=0.03)
 
 
-def make_end():
+def make_chime():
+    """One chime, 3.2 s, peak -3 dBFS, with its own click-free tail."""
     buf = np.zeros(int(SR * 3.2))
     # E5, G#5, B5, E6: ascending E major, 0.26 s apart; the last note rings longest.
     for k, (f, amp) in enumerate([(659.25, 0.85), (830.61, 0.90), (987.77, 0.95), (1318.51, 1.0)]):
-        place(buf, bell(f, 2.6, decay=1.7, amp=amp), 0.05 + 0.26 * k)
+        place(buf, bell(f, 2.6, decay=1.7, amp=amp), 0.26 * k)  # first note at 0.0 s: onset lands on the flash peak
     buf = reverb(buf)
     return finish(buf, peak_db=-3.0, fade_out_s=0.35)
+
+
+def make_end():
+    chime = make_chime()
+    chime_s = len(chime) / SR
+    assert END_INTERVAL_S >= chime_s, "chimes would overlap"
+    total_s = (END_REPEATS - 1) * END_INTERVAL_S + chime_s
+    if total_s > END_FLASH_S:
+        print(f"WARNING: end.wav is {total_s:.1f} s, longer than the {END_FLASH_S:.0f} s flash phase")
+    out = np.zeros(int(round(total_s * SR)))
+    for k in range(END_REPEATS):
+        i = int(round(k * END_INTERVAL_S * SR))
+        out[i:i + len(chime)] += chime  # no re-normalising: each chime keeps its own level
+    return out
 
 
 if __name__ == "__main__":

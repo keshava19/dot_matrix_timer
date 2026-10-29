@@ -77,7 +77,7 @@ class _TimerScreenState extends State<TimerScreen>
       return null;
     });
     _requestNotificationPermission();
-
+    _screenChannel.invokeMethod('preloadSounds').catchError((_) {});
     final ie = widget.initialEndMs;
     final it = widget.initialTotal;
     if (ie != null && it != null) {
