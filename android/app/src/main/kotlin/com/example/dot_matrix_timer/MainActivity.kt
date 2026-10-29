@@ -170,7 +170,7 @@ class MainActivity : FlutterActivity() {
         )
         val builder = NotificationCompat.Builder(this, timerNotificationChannel)
             .setSmallIcon(R.drawable.ic_stat_dot_matrix)
-            .setContentTitle("Dot Matrix Timer")
+            .setContentTitle("Dot Matrix")
             .setContentText(content)
             .setContentIntent(pi)
             .setOngoing(true)
