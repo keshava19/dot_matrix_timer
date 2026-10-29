@@ -1,10 +1,15 @@
 package com.example.dot_matrix_timer
 
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.res.AssetFileDescriptor
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.os.Build
 import android.provider.Settings
 import android.view.WindowManager
@@ -21,6 +26,9 @@ class MainActivity : FlutterActivity() {
     private val channelName = "dot_matrix_timer/screen"
     private val timerNotificationId = 1001
     private val timerNotificationChannel = "dot_matrix_timer_timer"
+
+    private var startPlayer: MediaPlayer? = null
+    private var endPlayer: MediaPlayer? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -90,6 +98,24 @@ class MainActivity : FlutterActivity() {
                     }
                     "cancelTimerNotification" -> {
                         cancelTimerNotification()
+                        result.success(null)
+                    }
+                    "playSound" -> {
+                        val sfx = call.argument<String>("sfx") ?: ""
+                        playSound(sfx)
+                        result.success(null)
+                    }
+                    "stopSound" -> {
+                        stopSoundFade()
+                        result.success(null)
+                    }
+                    "scheduleEndNotification" -> {
+                        val endMs = call.argument<Number>("endMs")?.toLong()
+                        if (endMs != null) scheduleEndNotification(endMs)
+                        result.success(null)
+                    }
+                    "cancelEndNotification" -> {
+                        cancelEndNotification()
                         result.success(null)
                     }
                     "requestNotificationPermission" -> {
@@ -194,5 +220,97 @@ class MainActivity : FlutterActivity() {
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             notifyDartPermissionResult(granted)
         }
+    }
+
+    private fun soundEnabled(): Boolean {
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        return am.ringerMode == AudioManager.RINGER_MODE_NORMAL
+    }
+
+    private fun preparePlayer(assetName: String): MediaPlayer? {
+        return try {
+            val afd: AssetFileDescriptor = assets.openFd("flutter_assets/assets/sounds/$assetName")
+            val mp = MediaPlayer()
+            mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            afd.close()
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            mp.prepare()
+            mp
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun playSound(sfx: String) {
+        if (!soundEnabled()) return
+        try {
+            if (sfx == "start") {
+                if (startPlayer == null) startPlayer = preparePlayer("start.wav")
+                val p = startPlayer ?: return
+                p.seekTo(0)
+                p.start()
+            } else if (sfx == "end") {
+                if (endPlayer == null) endPlayer = preparePlayer("end.wav")
+                val p = endPlayer ?: return
+                p.seekTo(0)
+                p.start()
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun stopSoundFade() {
+        try {
+            val p = endPlayer ?: return
+            if (!p.isPlaying) return
+            Thread {
+                try {
+                    for (i in 3 downTo 0) {
+                        p.setVolume(i / 4f, i / 4f)
+                        Thread.sleep(25)
+                    }
+                    p.stop()
+                    p.setVolume(1f, 1f)
+                } catch (_: Exception) {}
+            }.start()
+        } catch (_: Exception) {}
+    }
+
+    private fun scheduleEndNotification(endMs: Long) {
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(this, EndNotificationReceiver::class.java)
+        val pi = PendingIntent.getBroadcast(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (am.canScheduleExactAlarms()) {
+                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endMs, pi)
+                } else {
+                    am.set(AlarmManager.RTC_WAKEUP, endMs, pi)
+                }
+            } else {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, endMs, pi)
+            }
+        } catch (_: Exception) {
+            try { am.set(AlarmManager.RTC_WAKEUP, endMs, pi) } catch (_: Exception) {}
+        }
+    }
+
+    private fun cancelEndNotification() {
+        val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(this, EndNotificationReceiver::class.java)
+        val pi = PendingIntent.getBroadcast(
+            this, 0, intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pi != null) am.cancel(pi)
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .cancel(1002)
     }
 }

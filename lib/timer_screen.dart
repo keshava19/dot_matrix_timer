@@ -12,7 +12,9 @@ const int rows = 10;
 const Color neon = Color(0xFF39FF14);
 const Color offColor = Color(0xFF1C1C1C);
 const Duration holdToEnd = Duration(milliseconds: 700);
-const Duration endBlink = Duration(seconds: 8);
+const Duration endFlash = Duration(seconds: 8);
+const Duration doneTimeout = Duration(seconds: 60);
+const Duration lateEnd = Duration(milliseconds: 1500);
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({
@@ -60,6 +62,7 @@ class _TimerScreenState extends State<TimerScreen>
   bool _notificationsAllowed = false;
   Timer? _dimTimer;
   int _lastNotifyMs = 0;
+  bool _swallow = false;
 
   @override
   void initState() {
@@ -105,12 +108,23 @@ class _TimerScreenState extends State<TimerScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused) {
+      if (running && _notificationsAllowed) {
+        _cancelNotification();
+        _scheduleEndNotification();
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      _cancelEndNotification();
       if (end != null) {
         final now = DateTime.now();
         if (!now.isBefore(end!) && endingSince == null) {
-          endingSince = end;
-          HapticFeedback.vibrate();
+          if (now.difference(end!) > lateEnd) {
+            endingSince = end;
+          } else {
+            endingSince = now;
+            HapticFeedback.vibrate();
+            _playSound('end');
+          }
         }
         setState(() {});
         _setKeepScreenOn(true);
@@ -167,17 +181,23 @@ class _TimerScreenState extends State<TimerScreen>
   void _onTick() {
     final now = DateTime.now();
     if (endingSince != null) {
-      if (now.difference(endingSince!) > endBlink) {
+      if (now.difference(endingSince!) > endFlash + doneTimeout) {
         _reset();
       }
       return;
     }
     if (end == null) return;
     if (!now.isBefore(end!)) {
-      endingSince = now;
-      HapticFeedback.vibrate();
+      if (now.difference(end!) > lateEnd) {
+        endingSince = end;
+      } else {
+        endingSince = now;
+        HapticFeedback.vibrate();
+        _playSound('end');
+      }
     } else if (holdSince != null && now.difference(holdSince!) >= holdToEnd) {
       HapticFeedback.heavyImpact();
+      _swallow = true;
       _reset();
     }
 
@@ -210,6 +230,7 @@ class _TimerScreenState extends State<TimerScreen>
 
   void _handlePointerDown(PointerDownEvent e) {
     if (endingSince != null) {
+      _swallow = true;
       _reset();
       return;
     }
@@ -221,10 +242,15 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   void _handlePointerMove(PointerMoveEvent e) {
-    if (end == null) _scrub(e.position);
+    if (_swallow || end != null) return;
+    _scrub(e.position);
   }
 
   void _handlePointerUp(PointerEvent e) {
+    if (_swallow) {
+      _swallow = false;
+      return;
+    }
     if (end != null) {
       holdSince = null;
     } else if (preview > 0 && e is PointerUpEvent) {
@@ -256,23 +282,28 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(true);
     _scheduleDim();
     _showNotificationForTimer(remaining: Duration(minutes: minutes));
+    _playSound('start');
     HapticFeedback.mediumImpact();
   }
 
   void _reset() {
+    final wasEnding = endingSince != null;
     setState(() {
       total = 0;
       preview = 0;
       end = null;
       endingSince = null;
       holdSince = null;
+      _swallow = false;
     });
     _clearPersisted();
     _cancelNotification();
+    _cancelEndNotification();
     _setKeepScreenOn(false);
     _setLowRefresh(false);
     _setDimmed(false);
     _dimTimer?.cancel();
+    if (wasEnding) _stopSound();
   }
 
   // Platform channel helpers
@@ -341,6 +372,34 @@ class _TimerScreenState extends State<TimerScreen>
     if (!_notificationsAllowed) return;
     try {
       await _screenChannel.invokeMethod('cancelTimerNotification');
+    } catch (_) {}
+  }
+
+  Future<void> _scheduleEndNotification() async {
+    if (!_notificationsAllowed || end == null) return;
+    try {
+      await _screenChannel.invokeMethod('scheduleEndNotification', {
+        'endMs': end!.millisecondsSinceEpoch,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _cancelEndNotification() async {
+    if (!_notificationsAllowed) return;
+    try {
+      await _screenChannel.invokeMethod('cancelEndNotification');
+    } catch (_) {}
+  }
+
+  Future<void> _playSound(String sfx) async {
+    try {
+      await _screenChannel.invokeMethod('playSound', {'sfx': sfx});
+    } catch (_) {}
+  }
+
+  Future<void> _stopSound() async {
+    try {
+      await _screenChannel.invokeMethod('stopSound');
     } catch (_) {}
   }
 
@@ -467,12 +526,7 @@ class _GridPainter extends CustomPainter {
     final inMin = remMs % 60000 == 0 ? 60000 : remMs % 60000;
     final minuteFrac = running ? 1 - inMin / 60000 : 0.0;
 
-    double flash = 1;
-    if (state.endingSince != null) {
-      final e = now.difference(state.endingSince!).inMilliseconds / 1000.0;
-      flash = 0.12 +
-          0.88 * math.pow(0.5 + 0.5 * math.cos(2 * math.pi * e), 0.6);
-    }
+    final activeAlpha = state.endingSince == null ? 1.0 : _endAlpha(now, state);
     final pulse = state.calm
         ? 1.0
         : 0.5 + 0.5 * math.sin(2 * math.pi * now.millisecondsSinceEpoch / 1000.0 / 2.0);
@@ -480,7 +534,7 @@ class _GridPainter extends CustomPainter {
     for (var i = 0; i < cols * rows; i++) {
       final o = Offset((i % cols + 0.5) * cell, (i ~/ cols + 0.5) * cell);
       if (state.endingSince != null) {
-        i < state.total ? _lit(c, o, r, flash) : _off(c, o, r);
+        i < state.total ? _lit(c, o, r, activeAlpha) : _off(c, o, r);
       } else if (state.end != null) {
         if (i < cur) {
           _lit(c, o, r, 1);
@@ -495,6 +549,39 @@ class _GridPainter extends CustomPainter {
         i < state.preview ? _lit(c, o, r, 0.6) : _off(c, o, r);
       }
     }
+
+    // Hold-to-end progress, drawn just under the grid.
+    if (state.holdSince != null && state.end != null) {
+      final p = (now.difference(state.holdSince!).inMilliseconds /
+              holdToEnd.inMilliseconds)
+          .clamp(0.0, 1.0);
+      c.drawLine(
+        Offset(0, s.height + 10),
+        Offset(s.width * p, s.height + 10),
+        Paint()
+          ..color = neon
+          ..strokeWidth = 2
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  double _endAlpha(DateTime now, _TimerScreenState state) {
+    final e = now.difference(state.endingSince!).inMilliseconds / 1000.0;
+    final flashSecs = endFlash.inMilliseconds / 1000.0;
+
+    if (state.calm) {
+      return 0.35 + 0.65 * Curves.easeOut.transform(e.clamp(0.0, 1.0));
+    }
+
+    if (e < flashSecs) {
+      return 0.12 + 0.88 * math.pow(0.5 + 0.5 * math.cos(2 * math.pi * e), 0.6);
+    }
+
+    final d = e - flashSecs;
+    final breathe = 0.35 + 0.35 * (0.5 + 0.5 * math.cos(2 * math.pi * d / 4.0));
+    final k = Curves.easeInOut.transform(d.clamp(0.0, 1.0));
+    return 1.0 + (breathe - 1.0) * k;
   }
 
   void _off(Canvas c, Offset o, double r) =>
