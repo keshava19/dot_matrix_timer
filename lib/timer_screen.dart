@@ -5,8 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-
-
 const int cols = 6;
 const int rows = 10;
 const Color neon = Color(0xFF39FF14);
@@ -18,11 +16,7 @@ const Duration lateEnd = Duration(milliseconds: 1500);
 const Duration autoResetGrace = Duration(milliseconds: 1500);
 
 class TimerScreen extends StatefulWidget {
-  const TimerScreen({
-    super.key,
-    this.initialEndMs,
-    this.initialTotal,
-  });
+  const TimerScreen({super.key, this.initialEndMs, this.initialTotal});
 
   final int? initialEndMs;
   final int? initialTotal;
@@ -33,15 +27,16 @@ class TimerScreen extends StatefulWidget {
 
 class _TimerScreenState extends State<TimerScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  static const MethodChannel _screenChannel =
-      MethodChannel('dot_matrix_timer/screen');
+  static const MethodChannel _screenChannel = MethodChannel(
+    'dot_matrix_timer/screen',
+  );
 
   final GlobalKey _gridKey = GlobalKey();
 
-  late final AnimationController _tick =
-      AnimationController(vsync: this, duration: const Duration(seconds: 1))
-        ..repeat()
-        ..addListener(_onTick);
+  late final AnimationController _tick = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 1),
+  )..addListener(_onTick);
 
   // Timer model (mirrors dot_timer.dart)
   int total = 0; // minutes chosen (active dots)
@@ -55,8 +50,9 @@ class _TimerScreenState extends State<TimerScreen>
   static const String _prefEndMsKey = 'timer_end_ms';
   static const String _prefTotalKey = 'timer_total';
 
-  int get remainingMs =>
-      end == null ? 0 : math.max(0, end!.difference(DateTime.now()).inMilliseconds);
+  int get remainingMs => end == null
+      ? 0
+      : math.max(0, end!.difference(DateTime.now()).inMilliseconds);
 
   bool get running => end != null && endingSince == null;
 
@@ -79,7 +75,9 @@ class _TimerScreenState extends State<TimerScreen>
       return null;
     });
     _requestNotificationPermission();
-    _screenChannel.invokeMethod('preloadSounds').catchError((_) {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _screenChannel.invokeMethod('preloadSounds').catchError((_) {});
+    });
     final ie = widget.initialEndMs;
     final it = widget.initialTotal;
     if (ie != null && it != null) {
@@ -93,11 +91,20 @@ class _TimerScreenState extends State<TimerScreen>
         _setKeepScreenOn(true);
         _setLowRefresh(true);
         _scheduleDim();
-        _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+        _showNotificationForTimer(
+          remaining: Duration(milliseconds: remainingMs),
+        );
+        _tick.repeat();
       });
     } else {
       _restorePersisted();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    calm = MediaQuery.of(context).disableAnimations;
   }
 
   @override
@@ -112,7 +119,9 @@ class _TimerScreenState extends State<TimerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       if (running && _notificationsAllowed) {
-        _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+        _showNotificationForTimer(
+          remaining: Duration(milliseconds: remainingMs),
+        );
         _scheduleEndNotification();
       }
     } else if (state == AppLifecycleState.resumed) {
@@ -134,8 +143,11 @@ class _TimerScreenState extends State<TimerScreen>
         _setLowRefresh(true);
         _scheduleDim();
         if (_notificationsAllowed && endingSince == null) {
-          _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+          _showNotificationForTimer(
+            remaining: Duration(milliseconds: remainingMs),
+          );
         }
+        if (end != null) _tick.repeat();
       }
     }
   }
@@ -167,6 +179,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(true);
     _scheduleDim();
     _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+    _tick.repeat();
   }
 
   Future<void> _persistStart() async {
@@ -184,6 +197,10 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   void _onTick() {
+    if (end == null && endingSince == null && preview == 0) {
+      if (_tick.isAnimating) _tick.stop();
+      return;
+    }
     final now = DateTime.now();
     if (endingSince != null) {
       if (now.difference(endingSince!) > endFlash + doneTimeout) {
@@ -207,7 +224,8 @@ class _TimerScreenState extends State<TimerScreen>
     }
 
     // Throttled notification update.
-    if (_notificationsAllowed && now.millisecondsSinceEpoch - _lastNotifyMs >= 1000) {
+    if (_notificationsAllowed &&
+        now.millisecondsSinceEpoch - _lastNotifyMs >= 1000) {
       _lastNotifyMs = now.millisecondsSinceEpoch;
       _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
     }
@@ -295,6 +313,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(true);
     _scheduleDim();
     _showNotificationForTimer(remaining: Duration(minutes: minutes));
+    _tick.repeat();
     _playSound('start');
     HapticFeedback.mediumImpact();
   }
@@ -317,6 +336,8 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(false);
     _setDimmed(false);
     _dimTimer?.cancel();
+    _tick.stop();
+    _tick.reset();
     if (wasEnding) _stopSound();
   }
 
@@ -342,27 +363,36 @@ class _TimerScreenState extends State<TimerScreen>
   void _scheduleDim() {
     _dimTimer?.cancel();
     _dimTimer = Timer(const Duration(seconds: 30), () => _setDimmed(true));
-    _screenChannel.invokeMethod<int>('getScreenTimeout').then((timeout) {
-      if (timeout != null && timeout > 0 && mounted && running) {
-        _dimTimer?.cancel();
-        _dimTimer = Timer(
-          Duration(milliseconds: (timeout * 0.9).round()),
-          () => _setDimmed(true),
-        );
-      }
-    }).catchError((_) {});
+    _screenChannel
+        .invokeMethod<int>('getScreenTimeout')
+        .then((timeout) {
+          if (timeout != null && timeout > 0 && mounted && running) {
+            _dimTimer?.cancel();
+            _dimTimer = Timer(
+              Duration(milliseconds: (timeout * 0.9).round()),
+              () => _setDimmed(true),
+            );
+          }
+        })
+        .catchError((_) {});
   }
 
   Future<void> _requestNotificationPermission() async {
     try {
-      final granted = await _screenChannel.invokeMethod<bool>('requestNotificationPermission');
+      final granted = await _screenChannel.invokeMethod<bool>(
+        'requestNotificationPermission',
+      );
       if (mounted) setState(() => _notificationsAllowed = granted ?? true);
     } catch (_) {
       if (mounted) setState(() => _notificationsAllowed = false);
     }
   }
 
-  Future<void> _showNotificationForTimer({Duration? remaining, DateTime? end, int? total}) async {
+  Future<void> _showNotificationForTimer({
+    Duration? remaining,
+    DateTime? end,
+    int? total,
+  }) async {
     if (!_notificationsAllowed) return;
     final e = end ?? this.end;
     if (e == null) return;
@@ -419,14 +449,13 @@ class _TimerScreenState extends State<TimerScreen>
 
   @override
   Widget build(BuildContext context) {
-    calm = MediaQuery.of(context).disableAnimations;
     final idle = end == null && preview == 0;
 
     final hint = endingSince != null
         ? 'Tap to dismiss'
         : end != null
-            ? 'Hold to end'
-            : 'Tap a dot to set minutes';
+        ? 'Hold to end'
+        : 'Tap a dot to set minutes';
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -461,11 +490,30 @@ class _TimerScreenState extends State<TimerScreen>
                     final mStr = (s ~/ 60).toString().padLeft(2, '0');
                     final secStr = (s % 60).toString().padLeft(2, '0');
                     final a = idle ? 0.25 : 1.0;
-                    return Text.rich(TextSpan(children: [
-                      TextSpan(text: mStr, style: base.copyWith(color: neon.withValues(alpha: a))),
-                      TextSpan(text: ':', style: base.copyWith(color: neon.withValues(alpha: a * 0.5))),
-                      TextSpan(text: secStr, style: base.copyWith(color: neon.withValues(alpha: a * 0.6))),
-                    ]));
+                    return Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: mStr,
+                            style: base.copyWith(
+                              color: neon.withValues(alpha: a),
+                            ),
+                          ),
+                          TextSpan(
+                            text: ':',
+                            style: base.copyWith(
+                              color: neon.withValues(alpha: a * 0.5),
+                            ),
+                          ),
+                          TextSpan(
+                            text: secStr,
+                            style: base.copyWith(
+                              color: neon.withValues(alpha: a * 0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
                   },
                 ),
                 const SizedBox(height: 28),
@@ -487,11 +535,12 @@ class _TimerScreenState extends State<TimerScreen>
                     child: AnimatedBuilder(
                       animation: _tick,
                       builder: (_, _) {
-                        final p = (DateTime.now()
-                                .difference(holdSince!)
-                                .inMilliseconds /
-                            holdToEnd.inMilliseconds)
-                            .clamp(0.0, 1.0);
+                        final p =
+                            (DateTime.now()
+                                        .difference(holdSince!)
+                                        .inMilliseconds /
+                                    holdToEnd.inMilliseconds)
+                                .clamp(0.0, 1.0);
                         return Container(
                           height: 2,
                           alignment: Alignment.centerLeft,
@@ -543,7 +592,11 @@ class _GridPainter extends CustomPainter {
     final activeAlpha = state.endingSince == null ? 1.0 : _endAlpha(now, state);
     final pulse = state.calm
         ? 1.0
-        : 0.5 + 0.5 * math.sin(2 * math.pi * now.millisecondsSinceEpoch / 1000.0 / 2.0);
+        : 0.5 +
+              0.5 *
+                  math.sin(
+                    2 * math.pi * now.millisecondsSinceEpoch / 1000.0 / 2.0,
+                  );
 
     for (var i = 0; i < cols * rows; i++) {
       final o = Offset((i % cols + 0.5) * cell, (i ~/ cols + 0.5) * cell);
@@ -566,9 +619,10 @@ class _GridPainter extends CustomPainter {
 
     // Hold-to-end progress, drawn just under the grid.
     if (state.holdSince != null && state.end != null) {
-      final p = (now.difference(state.holdSince!).inMilliseconds /
-              holdToEnd.inMilliseconds)
-          .clamp(0.0, 1.0);
+      final p =
+          (now.difference(state.holdSince!).inMilliseconds /
+                  holdToEnd.inMilliseconds)
+              .clamp(0.0, 1.0);
       c.drawLine(
         Offset(0, s.height + 10),
         Offset(s.width * p, s.height + 10),
@@ -632,7 +686,11 @@ class _GridPainter extends CustomPainter {
         ..color = neon.withValues(alpha: 0.20 + 0.40 * p)
         ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.6),
     );
-    c.drawCircle(o, r, Paint()..color = neon.withValues(alpha: 0.75 + 0.25 * p));
+    c.drawCircle(
+      o,
+      r,
+      Paint()..color = neon.withValues(alpha: 0.75 + 0.25 * p),
+    );
     final ring = Rect.fromCircle(center: o, radius: r * 1.22);
     final track = Paint()
       ..style = PaintingStyle.stroke
@@ -650,4 +708,4 @@ class _GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GridPainter old) => true;
-} 
+}

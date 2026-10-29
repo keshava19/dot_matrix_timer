@@ -39,18 +39,13 @@ Future<void> main() async {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(DotMatrixTimerApp(
-    initialEndMs: initialEndMs,
-    initialTotal: initialTotal,
-  ));
+  runApp(
+    DotMatrixTimerApp(initialEndMs: initialEndMs, initialTotal: initialTotal),
+  );
 }
 
 class DotMatrixTimerApp extends StatelessWidget {
-  const DotMatrixTimerApp({
-    super.key,
-    this.initialEndMs,
-    this.initialTotal,
-  });
+  const DotMatrixTimerApp({super.key, this.initialEndMs, this.initialTotal});
 
   final int? initialEndMs;
   final int? initialTotal;
@@ -70,14 +65,9 @@ class DotMatrixTimerApp extends StatelessWidget {
           secondary: Color(0xFF39FF14),
           surface: Colors.black,
         ),
-        textTheme: const TextTheme().apply(
-          fontFamily: 'monospace',
-        ),
+        textTheme: const TextTheme().apply(fontFamily: 'monospace'),
       ),
-      home: TimerScreen(
-        initialEndMs: initialEndMs,
-        initialTotal: initialTotal,
-      ),
+      home: TimerScreen(initialEndMs: initialEndMs, initialTotal: initialTotal),
     );
   }
 }
