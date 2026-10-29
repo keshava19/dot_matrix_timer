@@ -112,7 +112,7 @@ class _TimerScreenState extends State<TimerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       if (running && _notificationsAllowed) {
-        _cancelNotification();
+        _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
         _scheduleEndNotification();
       }
     } else if (state == AppLifecycleState.resumed) {
@@ -120,6 +120,7 @@ class _TimerScreenState extends State<TimerScreen>
       if (end != null) {
         final now = DateTime.now();
         if (!now.isBefore(end!) && endingSince == null) {
+          _cancelNotification();
           if (now.difference(end!) > lateEnd) {
             endingSince = end;
           } else {
@@ -132,7 +133,9 @@ class _TimerScreenState extends State<TimerScreen>
         _setKeepScreenOn(true);
         _setLowRefresh(true);
         _scheduleDim();
-        if (_notificationsAllowed) _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+        if (_notificationsAllowed && endingSince == null) {
+          _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+        }
       }
     }
   }

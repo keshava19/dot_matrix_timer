@@ -169,7 +169,7 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = NotificationCompat.Builder(this, timerNotificationChannel)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setSmallIcon(R.drawable.ic_stat_dot_matrix)
             .setContentTitle("Dot Matrix Timer")
             .setContentText(content)
             .setContentIntent(pi)
@@ -212,15 +212,18 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001 && grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingNotificationContent?.let { content ->
-                postTimerNotification(content, pendingTotal, pendingProgress)
-                pendingNotificationContent = null
-                pendingTotal = null
-                pendingProgress = null
+        if (requestCode == 1001) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                pendingNotificationContent?.let { content ->
+                    postTimerNotification(content, pendingTotal, pendingProgress)
+                    pendingNotificationContent = null
+                    pendingTotal = null
+                    pendingProgress = null
+                }
             }
+            notifyDartPermissionResult(granted)
         }
 
         if (requestCode == 2001) {
