@@ -21,7 +21,8 @@ class EndNotificationReceiver : BroadcastReceiver() {
         }
         val soundUri = Uri.parse("android.resource://${context.packageName}/raw/end")
         val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.drawable.ic_stat_dot_matrix)
+            .setSmallIcon(R.drawable.ic_stat_dot_timer)
+            .setColor(0xFF1B7F0E.toInt())
             .setContentTitle("Dot Matrix")
             .setContentText("Timer finished")
             .setSound(soundUri)

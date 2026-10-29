@@ -58,7 +58,6 @@ class _TimerScreenState extends State<TimerScreen>
 
   bool _notificationsAllowed = false;
   Timer? _dimTimer;
-  int _lastNotifyMs = 0;
   bool _swallow = false;
   DateTime? _lockedUntil;
 
@@ -91,9 +90,7 @@ class _TimerScreenState extends State<TimerScreen>
         _setKeepScreenOn(true);
         _setLowRefresh(true);
         _scheduleDim();
-        _showNotificationForTimer(
-          remaining: Duration(milliseconds: remainingMs),
-        );
+        _showNotificationForTimer();
         _tick.repeat();
       });
     } else {
@@ -119,9 +116,7 @@ class _TimerScreenState extends State<TimerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       if (running && _notificationsAllowed) {
-        _showNotificationForTimer(
-          remaining: Duration(milliseconds: remainingMs),
-        );
+        _showNotificationForTimer();
         _scheduleEndNotification();
       }
     } else if (state == AppLifecycleState.resumed) {
@@ -143,9 +138,7 @@ class _TimerScreenState extends State<TimerScreen>
         _setLowRefresh(true);
         _scheduleDim();
         if (_notificationsAllowed && endingSince == null) {
-          _showNotificationForTimer(
-            remaining: Duration(milliseconds: remainingMs),
-          );
+          _showNotificationForTimer();
         }
         if (end != null) _tick.repeat();
       }
@@ -178,7 +171,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setKeepScreenOn(true);
     _setLowRefresh(true);
     _scheduleDim();
-    _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
+    _showNotificationForTimer();
     _tick.repeat();
   }
 
@@ -223,12 +216,7 @@ class _TimerScreenState extends State<TimerScreen>
       _reset();
     }
 
-    // Throttled notification update.
-    if (_notificationsAllowed &&
-        now.millisecondsSinceEpoch - _lastNotifyMs >= 1000) {
-      _lastNotifyMs = now.millisecondsSinceEpoch;
-      _showNotificationForTimer(remaining: Duration(milliseconds: remainingMs));
-    }
+    // Notification updates are handled by the Android chronometer.
   }
 
   // Interaction helpers
@@ -312,7 +300,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setKeepScreenOn(true);
     _setLowRefresh(true);
     _scheduleDim();
-    _showNotificationForTimer(remaining: Duration(minutes: minutes));
+    _showNotificationForTimer();
     _tick.repeat();
     _playSound('start');
     HapticFeedback.mediumImpact();
@@ -389,25 +377,14 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   Future<void> _showNotificationForTimer({
-    Duration? remaining,
     DateTime? end,
-    int? total,
   }) async {
     if (!_notificationsAllowed) return;
     final e = end ?? this.end;
     if (e == null) return;
-    final t = total ?? this.total;
-    final remMs = remaining?.inMilliseconds ?? remainingMs;
-    final remSec = (remMs / 1000).ceil().clamp(0, t * 60);
-    final mm = (remSec ~/ 60).toString().padLeft(2, '0');
-    final ss = (remSec % 60).toString().padLeft(2, '0');
-    final totalSec = t * 60;
-    final progress = (totalSec - remSec).clamp(0, totalSec);
     try {
       await _screenChannel.invokeMethod('showTimerNotification', {
-        'content': 'Remaining $mm:$ss',
-        'total': totalSec,
-        'progress': progress,
+        'endMs': e.millisecondsSinceEpoch,
       });
     } catch (_) {}
   }

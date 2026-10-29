@@ -97,7 +97,8 @@ class MainActivity : FlutterActivity() {
                         val content = call.argument<String>("content") ?: ""
                         val total = call.argument<Int>("total")
                         val progress = call.argument<Int>("progress")
-                        showTimerNotification(content, total, progress)
+                        val endMs = call.argument<Number>("endMs")?.toLong()
+                        showTimerNotification(content, total, progress, endMs)
                         result.success(null)
                     }
                     "cancelTimerNotification" -> {
@@ -137,23 +138,25 @@ class MainActivity : FlutterActivity() {
 
     private var pendingNotificationContent: String? = null
 
-    private fun showTimerNotification(content: String, total: Int? = null, progress: Int? = null) {
+    private fun showTimerNotification(content: String, total: Int? = null, progress: Int? = null, endMs: Long? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 pendingNotificationContent = content
                 pendingTotal = total
                 pendingProgress = progress
+                pendingEndMs = endMs
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
                 return
             }
         }
-        postTimerNotification(content, total, progress)
+        postTimerNotification(content, total, progress, endMs)
     }
 
     private var pendingTotal: Int? = null
     private var pendingProgress: Int? = null
+    private var pendingEndMs: Long? = null
 
-    private fun postTimerNotification(content: String, total: Int? = null, progress: Int? = null) {
+    private fun postTimerNotification(content: String, total: Int? = null, progress: Int? = null, endMs: Long? = null) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -169,13 +172,23 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = NotificationCompat.Builder(this, timerNotificationChannel)
-            .setSmallIcon(R.drawable.ic_stat_dot_matrix)
+            .setSmallIcon(R.drawable.ic_stat_dot_timer)
+            .setColor(0xFF1B7F0E.toInt())
             .setContentTitle("Dot Matrix")
             .setContentText(content)
             .setContentIntent(pi)
             .setOngoing(true)
             .setAutoCancel(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+        if (endMs != null) {
+            builder.setWhen(endMs)
+                .setUsesChronometer(true)
+            try {
+                builder.setChronometerCountDown(true)
+            } catch (_: Exception) {
+                // Older platform/compat variants may not support countdown.
+            }
+        }
         if (total != null && progress != null && total > 0) {
             builder.setProgress(total, progress, false)
         }
@@ -217,10 +230,11 @@ class MainActivity : FlutterActivity() {
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             if (granted) {
                 pendingNotificationContent?.let { content ->
-                    postTimerNotification(content, pendingTotal, pendingProgress)
+                    postTimerNotification(content, pendingTotal, pendingProgress, pendingEndMs)
                     pendingNotificationContent = null
                     pendingTotal = null
                     pendingProgress = null
+                    pendingEndMs = null
                 }
             }
             notifyDartPermissionResult(granted)
