@@ -32,21 +32,35 @@ jobs:
       - name: Test
         run: flutter test
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Build release APKs
+        run: flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/debug-info
 
-      - name: Prepare release artifact
+      - name: Prepare release artifacts
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          cp build/app/outputs/flutter-apk/app-release.apk "dotmatrix-timer-${VERSION}.apk"
-          sha256sum "dotmatrix-timer-${VERSION}.apk" > "dotmatrix-timer-${VERSION}.apk.sha256"
+          mkdir -p release
+          for apk in build/app/outputs/flutter-apk/*-release.apk; do
+            abi="${apk##*/app-}"
+            abi="${abi%-release.apk}"
+            out="release/dotmatrix-timer-${VERSION}-${abi}.apk"
+            cp "$apk" "$out"
+            sha256sum "$out" > "${out}.sha256"
+          done
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-info
+          path: build/debug-info
+          if-no-files-found: ignore
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dotmatrix-timer-*.apk
-            dotmatrix-timer-*.apk.sha256
+            release/dotmatrix-timer-*.apk
+            release/dotmatrix-timer-*.apk.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
