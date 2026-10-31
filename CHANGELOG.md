@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 - 2026-10-30
+## 1.2.1 - 2026-10-31
 
 ### Added
 - Active notification while the app is backgrounded with a running timer.
@@ -15,6 +15,8 @@
 - Idle animation is paused when no timer or preview is active.
 - Sound preloading is deferred to after first frame.
 - Reduced release size with split-by-ABI APKs, R8 resource shrinking, and ProGuard.
+- Compressed audio assets by converting WAVs to OGG Vorbis.
+- Enabled legacy native-library packaging to shrink release APK download size.
 
 ### Fixed
 - End-of-timer notification cancels stale ongoing timer notification.

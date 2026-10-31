@@ -6,6 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.dot_matrix_timer"
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -19,6 +25,7 @@ android {
         applicationId = "com.example.dot_matrix_timer"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
+        resConfigs("en")
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION

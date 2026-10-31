@@ -286,12 +286,12 @@ class MainActivity : FlutterActivity() {
         }
         try {
             if (sfx == "start") {
-                if (startPlayer == null) startPlayer = preparePlayer("start.wav")
+                if (startPlayer == null) startPlayer = preparePlayer("start.ogg")
                 val p = startPlayer ?: return
                 p.seekTo(0)
                 p.start()
             } else if (sfx == "end") {
-                if (endPlayer == null) endPlayer = preparePlayer("end.wav")
+                if (endPlayer == null) endPlayer = preparePlayer("end.ogg")
                 val p = endPlayer ?: return
                 p.seekTo(0)
                 p.start()
@@ -317,7 +317,7 @@ class MainActivity : FlutterActivity() {
             val afd = try {
                 resources.openRawResourceFd(R.raw.start)
             } catch (_: Exception) {
-                assets.openFd("flutter_assets/assets/sounds/start.wav")
+                assets.openFd("flutter_assets/assets/sounds/start.ogg")
             }
             startSoundId = soundPool?.load(afd, 1) ?: 0
             afd.close()

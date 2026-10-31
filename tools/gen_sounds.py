@@ -102,6 +102,17 @@ def make_end():
 if __name__ == "__main__":
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "assets/sounds")
     out.mkdir(parents=True, exist_ok=True)
-    write_wav(out / "start.wav", make_start())
-    write_wav(out / "end.wav", make_end())
-    print("wrote", out / "start.wav", "and", out / "end.wav")
+    import subprocess
+
+    for name, samples in [("start", make_start()), ("end", make_end())]:
+        wav = out / (name + ".wav")
+        ogg = out / (name + ".ogg")
+        write_wav(wav, samples)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(wav), "-c:a", "libvorbis", "-q:a", "4", str(ogg)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        wav.unlink(missing_ok=True)
+    print("wrote", out / "start.ogg", "and", out / "end.ogg")
