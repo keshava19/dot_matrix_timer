@@ -148,7 +148,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
         }
         setState(() {});
         _setKeepScreenOn(true);
-        _setLowRefresh(true);
+        _setLowRefresh(endingSince == null);
         _applyBurnInState();
         if (_notificationsAllowed && endingSince == null) {
           _showNotificationForTimer();
@@ -251,6 +251,8 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
           _setKeepScreenOn(false);
         },
       );
+      _setLowRefresh(false);
+      _startUiTimer();
     } else if (holdSince != null && now.difference(holdSince!) >= holdToEnd) {
       HapticFeedback.heavyImpact();
       _swallow = true;
@@ -281,6 +283,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
   }
 
   void _handlePointerDown(PointerDownEvent e) {
+    _swallow = false;
     if (_lockedUntil != null) {
       final lock = _lockedUntil!;
       _lockedUntil = null;
@@ -356,14 +359,16 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
   void _reset({bool auto = false}) {
     final wasEnding = endingSince != null;
-    if (auto) _lockedUntil = DateTime.now().add(autoResetGrace);
+    if (auto) {
+      _lockedUntil = DateTime.now().add(autoResetGrace);
+      _swallow = false;
+    }
     setState(() {
       total = 0;
       preview = 0;
       end = null;
       endingSince = null;
       holdSince = null;
-      _swallow = false;
     });
     _clearPersisted();
     _cancelNotification();
@@ -394,7 +399,10 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
   void _startUiTimer() {
     _uiTimer?.cancel();
-    _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    final period = endingSince != null
+        ? const Duration(milliseconds: 100)
+        : const Duration(seconds: 1);
+    _uiTimer = Timer.periodic(period, (_) {
       if (!mounted) return;
       _onTick();
       if (running || endingSince != null || preview > 0) setState(() {});
@@ -657,12 +665,7 @@ class _GridPainter extends CustomPainter {
       final o = Offset((i % cols + 0.5) * cell, (i ~/ cols + 0.5) * cell);
       if (state.endingSince != null) {
         if (i < state.total) {
-          final doneCluster = const {26, 27, 32, 33}.contains(i);
-          if (burnIn.doneFullGlow && doneCluster) {
-            _lit(c, o, r, 1.0);
-          } else {
-            _lit(c, o, r, burnIn.litIntensity.clamp(0.0, 1.0));
-          }
+          _lit(c, o, r, burnIn.litIntensity.clamp(0.0, 1.0));
         } else {
           _off(c, o, r, burnIn.unlitColor);
         }

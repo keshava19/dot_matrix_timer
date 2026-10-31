@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.2 - 2026-10-31
+
+### Added
+- Smoothed done-state transition: completed dots and readout fade from full glow into the dimmed rest state over 1.5 s (300 ms in demo mode).
+
+### Changed
+- Done-state grid and countdown now use 100 ms UI updates so the completion glow fades smoothly.
+- App resume preserves the correct low-refresh state when the timer has completed.
+
+### Fixed
+- Holding to end a timer no longer starts a new timer when the finger is lifted.
+- Done-state grid fades all completed dots consistently instead of spotlighting only the completion cluster.
+
 ## 1.3.1 - 2026-10-31
 
 ### Fixed
