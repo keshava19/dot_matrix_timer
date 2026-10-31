@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.3.0 - 2026-10-31
+
+### Added
+- Burn-in reduction policy with configurable warmup, ambient, done, touch-wake, and sleep timings.
+- Dynamic screen brightness levels (`0.30` while active/awake, `0.10` in ambient/done-dim states).
+- 8-position pixel shifting for the running dot grid.
+- Touch-wake behavior that restores full brightness and intensity for 5 seconds.
+- Done-state sequence: 10-second full glow, then dimmed rest state, sleep allowed after 60 seconds.
+- Pure policy module (`lib/burn_in_policy.dart`) and focused policy tests.
+- Native Android `setDimmed` support for an explicit brightness level.
+
+### Changed
+- Replaced the fixed 30-second dim timer with the policy-driven burn-in state.
+- Timer grid rendering now adapts lit/head intensity, unlit color, opacity, pulse, and shift to policy state.
+- End-state rendering focuses glow on the timer completion cluster before dimming.
+- App pause restores system brightness and cancels background UI timer updates.
+
+### Fixed
+- Haptic feedback on timer completion uses `heavyImpact`.
+- Done-phase cleanup cancels pending dim/sleep timers on reset.
+
 ## 1.2.1 - 2026-10-31
 
 ### Added
