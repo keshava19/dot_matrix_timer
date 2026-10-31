@@ -106,7 +106,7 @@ class BurnInPolicy {
       case BurnInLifecycle.set:
         return const BurnInVisual(
           phase: BurnInPhase.idle,
-          unlitColor: Colors.black,
+          unlitColor: Color(0xFF1C1C1C),
           readoutOpacity: 1.0,
         );
       case BurnInLifecycle.running:

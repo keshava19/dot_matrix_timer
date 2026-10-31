@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.1 - 2026-10-31
+
+### Fixed
+- Startup idle/set dots are visible on the AMOLED background.
+- Idle/startup screen restores system brightness when no timer is active.
+
+### Changed
+- Removed animated hold-to-end progress visuals for consistency.
+- Static `Holding to end…` cue remains while the screen is held.
+
 ## 1.3.0 - 2026-10-31
 
 ### Added

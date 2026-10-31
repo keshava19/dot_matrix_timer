@@ -160,17 +160,22 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
   Future<void> _restorePersisted() async {
     final prefs = await SharedPreferences.getInstance();
-    if (!(prefs.getBool(_prefActiveKey) ?? false)) return;
+    if (!(prefs.getBool(_prefActiveKey) ?? false)) {
+      await _setScreenBrightness(null);
+      return;
+    }
     final em = prefs.getInt(_prefEndMsKey);
     final tt = prefs.getInt(_prefTotalKey);
     if (em == null || tt == null) {
       await _clearPersisted();
+      await _setScreenBrightness(null);
       return;
     }
     final e = DateTime.fromMillisecondsSinceEpoch(em);
     if (!DateTime.now().isBefore(e)) {
       // Possibly finished while away: dismiss to idle.
       await _clearPersisted();
+      await _setScreenBrightness(null);
       return;
     }
     if (!mounted) return;
@@ -293,6 +298,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
       _lastPointerDown = DateTime.now();
       holdSince = DateTime.now();
       _applyBurnInState();
+      setState(() {});
     } else {
       _scrub(e.position);
     }
@@ -310,6 +316,8 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     }
     if (end != null) {
       holdSince = null;
+      _applyBurnInState();
+      setState(() {});
     } else if (preview > 0 && e is PointerUpEvent) {
       _beginTimer(preview);
     } else {
@@ -320,6 +328,8 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
   void _handlePointerCancel(PointerCancelEvent e) {
     if (end != null) {
       holdSince = null;
+      _applyBurnInState();
+      setState(() {});
     } else {
       setState(() => preview = 0);
     }
@@ -518,6 +528,8 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
     final hint = endingSince != null
         ? 'Tap to dismiss'
+        : holdSince != null
+        ? 'Holding to end…'
         : end != null
         ? 'Hold to end'
         : 'Tap a dot to set minutes';
@@ -594,29 +606,6 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                // Hold-to-end progress line
-                if (holdSince != null && end != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Builder(
-                      builder: (_) {
-                        final p =
-                            (DateTime.now()
-                                        .difference(holdSince!)
-                                        .inMilliseconds /
-                                    holdToEnd.inMilliseconds)
-                                .clamp(0.0, 1.0);
-                        return Container(
-                          height: 2,
-                          alignment: Alignment.centerLeft,
-                          child: FractionallySizedBox(
-                            widthFactor: p,
-                            child: Container(color: neon),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
                 Builder(
                   builder: (_) => Text(
                     hint,
@@ -696,21 +685,6 @@ class _GridPainter extends CustomPainter {
       }
     }
 
-    // Hold-to-end progress, drawn just under the grid.
-    if (state.holdSince != null && state.end != null) {
-      final p =
-          (now.difference(state.holdSince!).inMilliseconds /
-                  holdToEnd.inMilliseconds)
-              .clamp(0.0, 1.0);
-      c.drawLine(
-        Offset(0, s.height + 10),
-        Offset(s.width * p, s.height + 10),
-        Paint()
-          ..color = neon
-          ..strokeWidth = 2
-          ..strokeCap = StrokeCap.round,
-      );
-    }
   }
 
 
