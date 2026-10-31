@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'burn_in_policy.dart';
 
 const int cols = 6;
 const int rows = 10;
@@ -25,18 +28,24 @@ class TimerScreen extends StatefulWidget {
   State<TimerScreen> createState() => _TimerScreenState();
 }
 
-class _TimerScreenState extends State<TimerScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
+class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
   static const MethodChannel _screenChannel = MethodChannel(
     'dot_matrix_timer/screen',
   );
 
   final GlobalKey _gridKey = GlobalKey();
 
-  late final AnimationController _tick = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  )..addListener(_onTick);
+  static const bool _burnInDemo =
+      kDebugMode && bool.fromEnvironment('BURN_IN_DEMO');
+
+  Timer? _uiTimer;
+  Timer? _lateDimTimer;
+  Timer? _doneDimTimer;
+  Timer? _doneSleepTimer;
+  DateTime? _lastPointerDown;
+
+  BurnInConfig get _burnConfig =>
+      _burnInDemo ? BurnInConfig.demo() : BurnInConfig.normal;
 
   // Timer model (mirrors dot_timer.dart)
   int total = 0; // minutes chosen (active dots)
@@ -89,9 +98,9 @@ class _TimerScreenState extends State<TimerScreen>
         if (!mounted || end == null) return;
         _setKeepScreenOn(true);
         _setLowRefresh(true);
-        _scheduleDim();
+        _applyBurnInState();
         _showNotificationForTimer();
-        _tick.repeat();
+        _startUiTimer();
       });
     } else {
       _restorePersisted();
@@ -107,14 +116,18 @@ class _TimerScreenState extends State<TimerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _tick.dispose();
+    _uiTimer?.cancel();
     _dimTimer?.cancel();
+    _doneDimTimer?.cancel();
+    _doneSleepTimer?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _uiTimer?.cancel();
+      _setScreenBrightness(null);
       if (running && _notificationsAllowed) {
         _showNotificationForTimer();
         _scheduleEndNotification();
@@ -129,18 +142,18 @@ class _TimerScreenState extends State<TimerScreen>
             endingSince = end;
           } else {
             endingSince = now;
-            HapticFeedback.vibrate();
+            HapticFeedback.heavyImpact();
             _playSound('end');
           }
         }
         setState(() {});
         _setKeepScreenOn(true);
         _setLowRefresh(true);
-        _scheduleDim();
+        _applyBurnInState();
         if (_notificationsAllowed && endingSince == null) {
           _showNotificationForTimer();
         }
-        if (end != null) _tick.repeat();
+        _startUiTimer();
       }
     }
   }
@@ -170,9 +183,9 @@ class _TimerScreenState extends State<TimerScreen>
     });
     _setKeepScreenOn(true);
     _setLowRefresh(true);
-    _scheduleDim();
+    _applyBurnInState();
     _showNotificationForTimer();
-    _tick.repeat();
+    _startUiTimer();
   }
 
   Future<void> _persistStart() async {
@@ -191,32 +204,55 @@ class _TimerScreenState extends State<TimerScreen>
 
   void _onTick() {
     if (end == null && endingSince == null && preview == 0) {
-      if (_tick.isAnimating) _tick.stop();
+      _stopUiTimer();
       return;
     }
     final now = DateTime.now();
     if (endingSince != null) {
-      if (now.difference(endingSince!) > endFlash + doneTimeout) {
+      final doneElapsed = now.difference(endingSince!);
+      _applyBurnInState();
+      if (doneElapsed > endFlash + doneTimeout) {
+        _doneDimTimer?.cancel();
+        _doneSleepTimer?.cancel();
         _reset(auto: true);
       }
       return;
     }
-    if (end == null) return;
+    if (end == null) {
+      _applyBurnInState();
+      return;
+    }
     if (!now.isBefore(end!)) {
       if (now.difference(end!) > lateEnd) {
         endingSince = end;
       } else {
         endingSince = now;
-        HapticFeedback.vibrate();
+        HapticFeedback.heavyImpact();
         _playSound('end');
       }
+      _doneDimTimer?.cancel();
+      _doneSleepTimer?.cancel();
+      _doneDimTimer = Timer(
+        _burnConfig.doneGlow,
+        () {
+          if (!mounted || endingSince == null) return;
+          _applyBurnInState();
+        },
+      );
+      _doneSleepTimer = Timer(
+        _burnConfig.doneSleep,
+        () {
+          if (!mounted || endingSince == null) return;
+          _setKeepScreenOn(false);
+        },
+      );
     } else if (holdSince != null && now.difference(holdSince!) >= holdToEnd) {
       HapticFeedback.heavyImpact();
       _swallow = true;
       _reset();
+      return;
     }
-
-    // Notification updates are handled by the Android chronometer.
+    _applyBurnInState();
   }
 
   // Interaction helpers
@@ -254,7 +290,9 @@ class _TimerScreenState extends State<TimerScreen>
       return;
     }
     if (end != null) {
+      _lastPointerDown = DateTime.now();
       holdSince = DateTime.now();
+      _applyBurnInState();
     } else {
       _scrub(e.position);
     }
@@ -299,9 +337,9 @@ class _TimerScreenState extends State<TimerScreen>
     await _persistStart();
     _setKeepScreenOn(true);
     _setLowRefresh(true);
-    _scheduleDim();
+    _applyBurnInState();
     _showNotificationForTimer();
-    _tick.repeat();
+    _startUiTimer();
     _playSound('start');
     HapticFeedback.mediumImpact();
   }
@@ -322,11 +360,75 @@ class _TimerScreenState extends State<TimerScreen>
     _cancelEndNotification();
     _setKeepScreenOn(false);
     _setLowRefresh(false);
-    _setDimmed(false);
+    _setScreenBrightness(null);
+    _lateDimTimer?.cancel();
+    _lateDimTimer = null;
     _dimTimer?.cancel();
-    _tick.stop();
-    _tick.reset();
+    _stopUiTimer();
+    _lastPointerDown = null;
     if (wasEnding) _stopSound();
+  }
+
+  BurnInLifecycle _burnLifecycle() {
+    if (endingSince != null) return BurnInLifecycle.done;
+    if (end != null) return BurnInLifecycle.running;
+    if (preview > 0) return BurnInLifecycle.set;
+    return BurnInLifecycle.idle;
+  }
+
+  DateTime? get _startTime {
+    if (end == null || total <= 0) return null;
+    final seconds = _burnInDemo ? total * 2 : total * 60;
+    return end!.subtract(Duration(seconds: seconds));
+  }
+
+  void _startUiTimer() {
+    _uiTimer?.cancel();
+    _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      _onTick();
+      if (running || endingSince != null || preview > 0) setState(() {});
+    });
+  }
+
+  void _stopUiTimer() {
+    _uiTimer?.cancel();
+    _uiTimer = null;
+  }
+
+  Future<void> _setScreenBrightness(double? level) async {
+    try {
+      if (level == null) {
+        await _screenChannel.invokeMethod('setDimmed', {'on': false});
+      } else {
+        await _screenChannel.invokeMethod('setDimmed', {'on': true, 'level': level});
+      }
+    } catch (_) {}
+  }
+
+  void _applyBurnInState() {
+    if (!mounted) return;
+    final lifecycle = _burnLifecycle();
+    final start = _startTime;
+    final now = DateTime.now();
+    final elapsed = (running && start != null) ? now.difference(start) : Duration.zero;
+    final doneElapsed =
+        endingSince == null ? Duration.zero : now.difference(endingSince!);
+    final timeSinceTouch = _lastPointerDown == null
+        ? null
+        : now.difference(_lastPointerDown!);
+    final burn = BurnInPolicy.calculate(
+      state: lifecycle,
+      elapsed: lifecycle == BurnInLifecycle.running
+          ? elapsed
+          : Duration.zero,
+      doneElapsed: doneElapsed,
+      timeSinceTouch: timeSinceTouch,
+      reducedMotion: calm,
+      config: _burnConfig,
+    );
+    // Fire-and-forget: brightness must not block the visual state.
+    unawaited(_setScreenBrightness(burn.brightnessOverride));
   }
 
   // Platform channel helpers
@@ -342,29 +444,7 @@ class _TimerScreenState extends State<TimerScreen>
     } catch (_) {}
   }
 
-  Future<void> _setDimmed(bool on) async {
-    try {
-      await _screenChannel.invokeMethod('setDimmed', {'on': on});
-    } catch (_) {}
-  }
-
-  void _scheduleDim() {
-    _dimTimer?.cancel();
-    _dimTimer = Timer(const Duration(seconds: 30), () => _setDimmed(true));
-    _screenChannel
-        .invokeMethod<int>('getScreenTimeout')
-        .then((timeout) {
-          if (timeout != null && timeout > 0 && mounted && running) {
-            _dimTimer?.cancel();
-            _dimTimer = Timer(
-              Duration(milliseconds: (timeout * 0.9).round()),
-              () => _setDimmed(true),
-            );
-          }
-        })
-        .catchError((_) {});
-  }
-
+  // Dimming is policy-driven from _applyBurnInState, so no separate schedule is needed.
   Future<void> _requestNotificationPermission() async {
     try {
       final granted = await _screenChannel.invokeMethod<bool>(
@@ -426,6 +506,14 @@ class _TimerScreenState extends State<TimerScreen>
 
   @override
   Widget build(BuildContext context) {
+    final burnIn = BurnInPolicy.calculate(
+      state: _burnLifecycle(),
+      elapsed: _startTime == null ? Duration.zero : DateTime.now().difference(_startTime!),
+      doneElapsed: endingSince == null ? Duration.zero : DateTime.now().difference(endingSince!),
+      timeSinceTouch: _lastPointerDown == null ? null : DateTime.now().difference(_lastPointerDown!),
+      reducedMotion: calm,
+      config: _burnConfig,
+    );
     final idle = end == null && preview == 0;
 
     final hint = endingSince != null
@@ -443,14 +531,15 @@ class _TimerScreenState extends State<TimerScreen>
         onPointerUp: _handlePointerUp,
         onPointerCancel: _handlePointerCancel,
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Transform.translate(
+            offset: BurnInPolicy.shiftFor(burnIn.shiftIndex),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(
               children: [
                 const SizedBox(height: 28),
-                AnimatedBuilder(
-                  animation: _tick,
-                  builder: (_, _) {
+                Builder(
+                  builder: (_) {
                     const base = TextStyle(
                       fontSize: 56,
                       fontWeight: FontWeight.w300,
@@ -466,7 +555,7 @@ class _TimerScreenState extends State<TimerScreen>
                     final s = (remainingMs / 1000).ceil();
                     final mStr = (s ~/ 60).toString().padLeft(2, '0');
                     final secStr = (s % 60).toString().padLeft(2, '0');
-                    final a = idle ? 0.25 : 1.0;
+                    final a = idle ? 0.25 : burnIn.readoutOpacity;
                     return Text.rich(
                       TextSpan(
                         children: [
@@ -500,7 +589,7 @@ class _TimerScreenState extends State<TimerScreen>
                       aspectRatio: cols / rows,
                       child: CustomPaint(
                         key: _gridKey,
-                        painter: _GridPainter(this, _tick),
+                        painter: _GridPainter(this, burnIn),
                       ),
                     ),
                   ),
@@ -509,9 +598,8 @@ class _TimerScreenState extends State<TimerScreen>
                 if (holdSince != null && end != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: AnimatedBuilder(
-                      animation: _tick,
-                      builder: (_, _) {
+                    child: Builder(
+                      builder: (_) {
                         final p =
                             (DateTime.now()
                                         .difference(holdSince!)
@@ -529,13 +617,12 @@ class _TimerScreenState extends State<TimerScreen>
                       },
                     ),
                   ),
-                AnimatedBuilder(
-                  animation: _tick,
-                  builder: (_, _) => Text(
+                Builder(
+                  builder: (_) => Text(
                     hint,
                     style: TextStyle(
                       fontSize: 13,
-                      color: neon.withValues(alpha: 0.55),
+                      color: neon.withValues(alpha: burnIn.hintOpacity),
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -544,6 +631,7 @@ class _TimerScreenState extends State<TimerScreen>
               ],
             ),
           ),
+          ),
         ),
       ),
     );
@@ -551,8 +639,10 @@ class _TimerScreenState extends State<TimerScreen>
 }
 
 class _GridPainter extends CustomPainter {
-  _GridPainter(this.state, Listenable repaint) : super(repaint: repaint);
+  _GridPainter(this.state, this.burnIn);
+
   final _TimerScreenState state;
+  final BurnInVisual burnIn;
 
   @override
   void paint(Canvas c, Size s) {
@@ -566,8 +656,7 @@ class _GridPainter extends CustomPainter {
     final inMin = remMs % 60000 == 0 ? 60000 : remMs % 60000;
     final minuteFrac = running ? 1 - inMin / 60000 : 0.0;
 
-    final activeAlpha = state.endingSince == null ? 1.0 : _endAlpha(now, state);
-    final pulse = state.calm
+    final pulse = state.calm || !burnIn.pulse
         ? 1.0
         : 0.5 +
               0.5 *
@@ -578,19 +667,32 @@ class _GridPainter extends CustomPainter {
     for (var i = 0; i < cols * rows; i++) {
       final o = Offset((i % cols + 0.5) * cell, (i ~/ cols + 0.5) * cell);
       if (state.endingSince != null) {
-        i < state.total ? _lit(c, o, r, activeAlpha) : _off(c, o, r);
+        if (i < state.total) {
+          final doneCluster = const {26, 27, 32, 33}.contains(i);
+          if (burnIn.doneFullGlow && doneCluster) {
+            _lit(c, o, r, 1.0);
+          } else {
+            _lit(c, o, r, burnIn.litIntensity.clamp(0.0, 1.0));
+          }
+        } else {
+          _off(c, o, r, burnIn.unlitColor);
+        }
       } else if (state.end != null) {
         if (i < cur) {
-          _lit(c, o, r, 1);
+          _lit(c, o, r, burnIn.litIntensity.clamp(0.0, 1.0));
         } else if (i == cur) {
-          _current(c, o, r, pulse, minuteFrac);
+          if (burnIn.pulse) {
+            _current(c, o, r, pulse, minuteFrac);
+          } else {
+            _currentStatic(c, o, r, minuteFrac, burnIn.headIntensity);
+          }
         } else if (i < state.total) {
           _passed(c, o, r);
         } else {
-          _off(c, o, r);
+          _off(c, o, r, burnIn.unlitColor);
         }
       } else {
-        i < state.preview ? _lit(c, o, r, 0.6) : _off(c, o, r);
+        i < state.preview ? _lit(c, o, r, 0.6) : _off(c, o, r, burnIn.unlitColor);
       }
     }
 
@@ -611,26 +713,9 @@ class _GridPainter extends CustomPainter {
     }
   }
 
-  double _endAlpha(DateTime now, _TimerScreenState state) {
-    final e = now.difference(state.endingSince!).inMilliseconds / 1000.0;
-    final flashSecs = endFlash.inMilliseconds / 1000.0;
 
-    if (state.calm) {
-      return 0.35 + 0.65 * Curves.easeOut.transform(e.clamp(0.0, 1.0));
-    }
-
-    if (e < flashSecs) {
-      return 0.12 + 0.88 * math.pow(0.5 + 0.5 * math.cos(2 * math.pi * e), 0.6);
-    }
-
-    final d = e - flashSecs;
-    final breathe = 0.35 + 0.35 * (0.5 + 0.5 * math.cos(2 * math.pi * d / 4.0));
-    final k = Curves.easeInOut.transform(d.clamp(0.0, 1.0));
-    return 1.0 + (breathe - 1.0) * k;
-  }
-
-  void _off(Canvas c, Offset o, double r) =>
-      c.drawCircle(o, r * 0.55, Paint()..color = offColor);
+  void _off(Canvas c, Offset o, double r, [Color? color]) =>
+      c.drawCircle(o, r * 0.55, Paint()..color = (color ?? offColor));
 
   void _lit(Canvas c, Offset o, double r, double a) {
     c.drawCircle(
@@ -683,6 +768,40 @@ class _GridPainter extends CustomPainter {
     c.drawArc(ring, -math.pi / 2, 2 * math.pi * frac, false, fill);
   }
 
+  void _currentStatic(Canvas c, Offset o, double r, double frac, double intensity) {
+    final alpha = intensity.clamp(0.0, 1.0);
+    c.drawCircle(
+      o,
+      r,
+      Paint()..color = neon.withValues(alpha: alpha),
+    );
+    final ring = Rect.fromCircle(center: o, radius: r * 1.22);
+    final track = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..color = neon.withValues(alpha: 0.12 * alpha);
+    c.drawArc(ring, 0, 2 * math.pi, false, track);
+    final fill = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..color = neon.withValues(alpha: alpha);
+    c.drawArc(ring, -math.pi / 2, 2 * math.pi * frac, false, fill);
+  }
+
   @override
-  bool shouldRepaint(covariant _GridPainter old) => true;
+  bool shouldRepaint(covariant _GridPainter old) =>
+      old.state.end != state.end ||
+      old.state.endingSince != state.endingSince ||
+      old.state.preview != state.preview ||
+      old.state.total != state.total ||
+      old.burnIn.phase != burnIn.phase ||
+      old.burnIn.brightnessOverride != burnIn.brightnessOverride ||
+      old.burnIn.shiftIndex != burnIn.shiftIndex ||
+      old.burnIn.litIntensity != burnIn.litIntensity ||
+      old.burnIn.headIntensity != burnIn.headIntensity ||
+      old.burnIn.unlitColor != burnIn.unlitColor ||
+      old.burnIn.pulse != burnIn.pulse;
+
 }
