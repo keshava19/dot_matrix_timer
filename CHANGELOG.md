@@ -4,6 +4,7 @@
 
 ### Added
 - Smoothed done-state transition: completed dots and readout fade from full glow into the dimmed rest state over 1.5 s (300 ms in demo mode).
+- Completion chime (`end.ogg`) now plays when a timer finishes while the app is backgrounded.
 
 ### Changed
 - Done-state grid and countdown now use 100 ms UI updates so the completion glow fades smoothly.
