@@ -84,9 +84,11 @@ class MainActivity : FlutterActivity() {
                     }
                     "setDimmed" -> {
                         val on = call.argument<Boolean>("on") ?: false
+                        val level = (call.argument<Number>("level") ?: 0.15).toFloat()
                         try {
                             val attrs = window.attributes
-                            attrs.screenBrightness = if (on) 0.15f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                            attrs.screenBrightness =
+                                if (on) level else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                             window.attributes = attrs
                         } catch (_: Exception) {
                             // best effort

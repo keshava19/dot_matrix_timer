@@ -34,6 +34,18 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
   Timer? _uiTimer;
 
+  static const List<Offset> _burnOffsets = <Offset>[
+    Offset.zero,
+    Offset(2, 0),
+    Offset(2, 2),
+    Offset(0, 2),
+    Offset(-2, 2),
+    Offset(-2, 0),
+    Offset(-2, -2),
+    Offset(0, -2),
+    Offset(2, -2),
+  ];
+
   // Timer model (mirrors dot_timer.dart)
   int total = 0; // minutes chosen (active dots)
   int preview = 0;
@@ -54,9 +66,14 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
   void _startUiTimer() {
     _uiTimer?.cancel();
+    var ticks = 0;
     _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       _onTick();
+      ticks++;
+      if (ticks % 30 == 0 && (running || endingSince != null)) {
+        _antiBurnIndex = (_antiBurnIndex + 1) % _burnOffsets.length;
+      }
       if (running || endingSince != null || preview > 0) setState(() {});
     });
   }
@@ -68,6 +85,8 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
 
   bool _notificationsAllowed = false;
   Timer? _dimTimer;
+  Timer? _lateDimTimer;
+  int _antiBurnIndex = 0;
   bool _swallow = false;
   DateTime? _lockedUntil;
 
@@ -334,8 +353,11 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     _setKeepScreenOn(false);
     _setLowRefresh(false);
     _setDimmed(false);
+    _lateDimTimer?.cancel();
+    _lateDimTimer = null;
     _dimTimer?.cancel();
     _stopUiTimer();
+    _antiBurnIndex = 0;
     if (wasEnding) _stopSound();
   }
 
@@ -352,15 +374,33 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  Future<void> _setDimmed(bool on) async {
+  Future<void> _setDimLevel(double? level) async {
     try {
-      await _screenChannel.invokeMethod('setDimmed', {'on': on});
+      if (level == null) {
+        await _screenChannel.invokeMethod('setDimmed', {'on': false});
+      } else {
+        await _screenChannel.invokeMethod('setDimmed', {'on': true, 'level': level});
+      }
     } catch (_) {}
+  }
+
+  Future<void> _setDimmed(bool on) async {
+    await _setDimLevel(on ? 0.15 : null);
+  }
+
+  Future<void> _setVeryDimmed(bool on) async {
+    await _setDimLevel(on ? 0.05 : 0.15);
   }
 
   void _scheduleDim() {
     _dimTimer?.cancel();
-    _dimTimer = Timer(const Duration(seconds: 30), () => _setDimmed(true));
+    _lateDimTimer?.cancel();
+    _dimTimer = Timer(const Duration(seconds: 30), () {
+      _setDimmed(true);
+      _lateDimTimer = Timer(const Duration(seconds: 90), () {
+        _setVeryDimmed(true);
+      });
+    });
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -493,11 +533,14 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 28),
                 Expanded(
                   child: Center(
-                    child: AspectRatio(
-                      aspectRatio: cols / rows,
-                      child: CustomPaint(
-                        key: _gridKey,
-                        painter: _GridPainter(this),
+                    child: Transform.translate(
+                      offset: _burnOffsets[_antiBurnIndex],
+                      child: AspectRatio(
+                        aspectRatio: cols / rows,
+                        child: CustomPaint(
+                          key: _gridKey,
+                          painter: _GridPainter(this),
+                        ),
                       ),
                     ),
                   ),
