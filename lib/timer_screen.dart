@@ -25,18 +25,14 @@ class TimerScreen extends StatefulWidget {
   State<TimerScreen> createState() => _TimerScreenState();
 }
 
-class _TimerScreenState extends State<TimerScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
+class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
   static const MethodChannel _screenChannel = MethodChannel(
     'dot_matrix_timer/screen',
   );
 
   final GlobalKey _gridKey = GlobalKey();
 
-  late final AnimationController _tick = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  )..addListener(_onTick);
+  Timer? _uiTimer;
 
   // Timer model (mirrors dot_timer.dart)
   int total = 0; // minutes chosen (active dots)
@@ -55,6 +51,20 @@ class _TimerScreenState extends State<TimerScreen>
       : math.max(0, end!.difference(DateTime.now()).inMilliseconds);
 
   bool get running => end != null && endingSince == null;
+
+  void _startUiTimer() {
+    _uiTimer?.cancel();
+    _uiTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      _onTick();
+      if (running || endingSince != null || preview > 0) setState(() {});
+    });
+  }
+
+  void _stopUiTimer() {
+    _uiTimer?.cancel();
+    _uiTimer = null;
+  }
 
   bool _notificationsAllowed = false;
   Timer? _dimTimer;
@@ -91,7 +101,7 @@ class _TimerScreenState extends State<TimerScreen>
         _setLowRefresh(true);
         _scheduleDim();
         _showNotificationForTimer();
-        _tick.repeat();
+        _startUiTimer();
       });
     } else {
       _restorePersisted();
@@ -107,7 +117,7 @@ class _TimerScreenState extends State<TimerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _tick.dispose();
+    _uiTimer?.cancel();
     _dimTimer?.cancel();
     super.dispose();
   }
@@ -115,6 +125,7 @@ class _TimerScreenState extends State<TimerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
+      _stopUiTimer();
       if (running && _notificationsAllowed) {
         _showNotificationForTimer();
         _scheduleEndNotification();
@@ -140,7 +151,7 @@ class _TimerScreenState extends State<TimerScreen>
         if (_notificationsAllowed && endingSince == null) {
           _showNotificationForTimer();
         }
-        if (end != null) _tick.repeat();
+        if (end != null) _startUiTimer();
       }
     }
   }
@@ -172,7 +183,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(true);
     _scheduleDim();
     _showNotificationForTimer();
-    _tick.repeat();
+    _startUiTimer();
   }
 
   Future<void> _persistStart() async {
@@ -191,7 +202,7 @@ class _TimerScreenState extends State<TimerScreen>
 
   void _onTick() {
     if (end == null && endingSince == null && preview == 0) {
-      if (_tick.isAnimating) _tick.stop();
+      _stopUiTimer();
       return;
     }
     final now = DateTime.now();
@@ -301,7 +312,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(true);
     _scheduleDim();
     _showNotificationForTimer();
-    _tick.repeat();
+    _startUiTimer();
     _playSound('start');
     HapticFeedback.mediumImpact();
   }
@@ -324,8 +335,7 @@ class _TimerScreenState extends State<TimerScreen>
     _setLowRefresh(false);
     _setDimmed(false);
     _dimTimer?.cancel();
-    _tick.stop();
-    _tick.reset();
+    _stopUiTimer();
     if (wasEnding) _stopSound();
   }
 
@@ -351,18 +361,6 @@ class _TimerScreenState extends State<TimerScreen>
   void _scheduleDim() {
     _dimTimer?.cancel();
     _dimTimer = Timer(const Duration(seconds: 30), () => _setDimmed(true));
-    _screenChannel
-        .invokeMethod<int>('getScreenTimeout')
-        .then((timeout) {
-          if (timeout != null && timeout > 0 && mounted && running) {
-            _dimTimer?.cancel();
-            _dimTimer = Timer(
-              Duration(milliseconds: (timeout * 0.9).round()),
-              () => _setDimmed(true),
-            );
-          }
-        })
-        .catchError((_) {});
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -448,9 +446,8 @@ class _TimerScreenState extends State<TimerScreen>
             child: Column(
               children: [
                 const SizedBox(height: 28),
-                AnimatedBuilder(
-                  animation: _tick,
-                  builder: (_, _) {
+                Builder(
+                  builder: (_) {
                     const base = TextStyle(
                       fontSize: 56,
                       fontWeight: FontWeight.w300,
@@ -500,7 +497,7 @@ class _TimerScreenState extends State<TimerScreen>
                       aspectRatio: cols / rows,
                       child: CustomPaint(
                         key: _gridKey,
-                        painter: _GridPainter(this, _tick),
+                        painter: _GridPainter(this),
                       ),
                     ),
                   ),
@@ -509,9 +506,8 @@ class _TimerScreenState extends State<TimerScreen>
                 if (holdSince != null && end != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
-                    child: AnimatedBuilder(
-                      animation: _tick,
-                      builder: (_, _) {
+                    child: Builder(
+                      builder: (_) {
                         final p =
                             (DateTime.now()
                                         .difference(holdSince!)
@@ -529,9 +525,8 @@ class _TimerScreenState extends State<TimerScreen>
                       },
                     ),
                   ),
-                AnimatedBuilder(
-                  animation: _tick,
-                  builder: (_, _) => Text(
+                Builder(
+                  builder: (_) => Text(
                     hint,
                     style: TextStyle(
                       fontSize: 13,
@@ -551,7 +546,7 @@ class _TimerScreenState extends State<TimerScreen>
 }
 
 class _GridPainter extends CustomPainter {
-  _GridPainter(this.state, Listenable repaint) : super(repaint: repaint);
+  _GridPainter(this.state);
   final _TimerScreenState state;
 
   @override

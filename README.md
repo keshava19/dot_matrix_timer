@@ -11,7 +11,7 @@ A single-screen Flutter countdown timer for mobile.
 - Header shows `mm:ss`; hint text adapts to state.
 - End state: 8 s eased flash + two chimes, then a 60 s calm "done" state; tap to dismiss.
 - Supports app backgrounding/resume and persisted timer restoration.
-- Android keeps the screen awake and dims after the system screen timeout; play start/end sounds with the `start.wav`/`end.wav` assets.
+- Android keeps the screen awake and dims after 30 seconds on an active timer; play start/end sounds with the `start.ogg`/`end.ogg` assets.
 
 ## Development
 
