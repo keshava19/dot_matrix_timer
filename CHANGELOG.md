@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.3 - 2026-11-01
+
+### Fixed
+- App opens/restores system screen brightness instead of an overly bright override.
+- Background completion now cancels the ongoing timer notification, posts the done notification, and settles timer state without a negative countdown.
+- Completion alarm scheduling now happens when the timer starts and follows exact-alarm permission handling.
+
+### Added
+- `USE_EXACT_ALARM` declaration for more reliable exact completion timing on Android.
+
 ## 1.3.2 - 2026-10-31
 
 ### Added

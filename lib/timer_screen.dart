@@ -83,6 +83,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
       return null;
     });
     _requestNotificationPermission();
+    unawaited(_setScreenBrightness(null));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _screenChannel.invokeMethod('preloadSounds').catchError((_) {});
     });
@@ -100,6 +101,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
         _setLowRefresh(true);
         _applyBurnInState();
         _showNotificationForTimer();
+        if (_notificationsAllowed) unawaited(_scheduleEndNotification());
         _startUiTimer();
       });
     } else {
@@ -134,6 +136,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
       }
     } else if (state == AppLifecycleState.resumed) {
       _cancelEndNotification();
+      _cancelNotification();
       if (end != null) {
         final now = DateTime.now();
         if (!now.isBefore(end!) && endingSince == null) {
@@ -154,6 +157,8 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
           _showNotificationForTimer();
         }
         _startUiTimer();
+      } else {
+        unawaited(_setScreenBrightness(null));
       }
     }
   }
@@ -190,6 +195,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     _setLowRefresh(true);
     _applyBurnInState();
     _showNotificationForTimer();
+    if (_notificationsAllowed) unawaited(_scheduleEndNotification());
     _startUiTimer();
   }
 
@@ -352,6 +358,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     _setLowRefresh(true);
     _applyBurnInState();
     _showNotificationForTimer();
+    if (_notificationsAllowed) unawaited(_scheduleEndNotification());
     _startUiTimer();
     _playSound('start');
     HapticFeedback.mediumImpact();

@@ -12,6 +12,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.SoundPool
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
@@ -24,6 +25,15 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            val attrs = window.attributes
+            attrs.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window.attributes = attrs
+        } catch (_: Exception) {
+        }
+    }
     private val channelName = "dot_matrix_timer/screen"
     private val timerNotificationId = 1001
     private val timerNotificationChannel = "dot_matrix_timer_timer"
