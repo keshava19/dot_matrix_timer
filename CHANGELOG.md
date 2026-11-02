@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.4 - 2026-11-02
+
+### Fixed
+- Background timer completion now plays the app's `end.ogg` chime in release builds instead of the system default notification sound.
+- Foreground completion no longer risks playing both the notification chime and the in-app chime.
+- Legacy `dot_matrix_timer_end`, `_v2`, and `_v3` notification channels are migrated to `dot_matrix_timer_end_v4`.
+
+### Changed
+- Android release builds now use a stable release signing key. Existing installs must be uninstalled before installing v1.3.4; future releases will upgrade in place.
+
 ## 1.3.3 - 2026-11-01
 
 ### Fixed
