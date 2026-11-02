@@ -25,8 +25,14 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        @Volatile
+        var isForeground = false
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        EndNotificationChannels.cleanupLegacy(this)
         try {
             val attrs = window.attributes
             attrs.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
@@ -34,6 +40,16 @@ class MainActivity : FlutterActivity() {
         } catch (_: Exception) {
         }
     }
+    override fun onResume() {
+        super.onResume()
+        isForeground = true
+    }
+
+    override fun onPause() {
+        isForeground = false
+        super.onPause()
+    }
+
     private val channelName = "dot_matrix_timer/screen"
     private val timerNotificationId = 1001
     private val timerNotificationChannel = "dot_matrix_timer_timer"
