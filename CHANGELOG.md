@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.5 - 2026-11-03
+
+### Added
+- Google Play release as `com.keshava.dotmatrix` (AAB, staged rollout).
+- Repo-hosted privacy policy and Play Store listing assets/templates.
+- CI now builds a Play-ready AAB and uploads R8 mapping symbols.
+
+### Changed
+- Application ID changed from `com.example.dot_matrix_timer` to `com.keshava.dotmatrix`; side-loaded installs must be uninstalled before installing this build.
+- Version bumped to `1.3.5+12`.
+
 ## 1.3.4 - 2026-11-02
 
 ### Fixed

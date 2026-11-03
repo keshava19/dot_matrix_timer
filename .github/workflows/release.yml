@@ -60,6 +60,19 @@ jobs:
 
           keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$ANDROID_KEY_ALIAS" -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
 
+      - name: Build release AAB
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: flutter build appbundle --release --obfuscate --split-debug-info=build/debug-info
+
+      - name: Verify AAB signing
+        run: |
+          set -euo pipefail
+          test -f build/app/outputs/bundle/release/app-release.aab
+          keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab | grep -E "Owner:|SHA256:" | head
+
       - name: Build release APKs
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -87,6 +100,8 @@ jobs:
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release
+          cp build/app/outputs/bundle/release/app-release.aab "release/dotmatrix-timer-${VERSION}.aab"
+          sha256sum "release/dotmatrix-timer-${VERSION}.aab" > "release/dotmatrix-timer-${VERSION}.aab.sha256"
           for apk in build/app/outputs/flutter-apk/*-release.apk; do
             abi="${apk##*/app-}"
             abi="${abi%-release.apk}"
@@ -100,6 +115,20 @@ jobs:
         with:
           name: debug-info
           path: build/debug-info
+          if-no-files-found: ignore
+
+      - name: Upload Play bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-aab
+          path: release/dotmatrix-timer-*.aab*
+          if-no-files-found: ignore
+
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping
+          path: build/app/outputs/mapping/release/mapping.txt
           if-no-files-found: ignore
 
       - name: Create or update GitHub Release

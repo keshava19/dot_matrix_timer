@@ -1,0 +1,12 @@
+Dot Matrix is a single-screen countdown timer designed for AMOLED displays.
+
+• 6 x 10 dot matrix: one glowing dot per remaining minute.
+• Tap a dot to start a timer of that many minutes; drag to scrub before release.
+• Hold anywhere for 0.7 s to cancel.
+• Completion: an eased 8 s flash, two chimes, then a calm 60 s "done" state (tap to dismiss).
+• AMOLED-friendly: true black, burn-in reduction with dynamic brightness, unlit dots fading to black, pixel shifting, sleep after completion.
+• Background-aware: persisted timer restoration, ongoing notification countdown, completion alarm.
+• Android keeps the screen awake while active; brightness restores on pause.
+• No ads, no accounts, no data collection. Timer state stays on your device.
+
+Category: productivity / timers.

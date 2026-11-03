@@ -1,0 +1,1 @@
+AMOLED dot-matrix countdown timer with 60 dots, chimes, and burn-in protection.

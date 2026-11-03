@@ -1,0 +1,1 @@
+Dot Matrix debuts on Google Play as com.keshava.dotmatrix. Google Play-signed release with countdown notifications, completion chimes, burn-in reduction, exact-alarm based completion, and persisted timer state. Existing side-loaded builds must be uninstalled before upgrading to this Play release.

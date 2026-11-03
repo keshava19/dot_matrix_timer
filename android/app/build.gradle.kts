@@ -13,7 +13,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.example.dot_matrix_timer"
+    namespace = "com.keshava.dotmatrix"
 
     packaging {
         jniLibs {
@@ -30,7 +30,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.dot_matrix_timer"
+        applicationId = "com.keshava.dotmatrix"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         resConfigs("en")

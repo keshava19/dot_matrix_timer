@@ -1,4 +1,4 @@
-package com.example.dot_matrix_timer
+package com.keshava.dotmatrix
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
