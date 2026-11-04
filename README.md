@@ -2,7 +2,9 @@
 
 A single-screen Flutter countdown timer for mobile.
 
-![Dot Matrix Timer](store/play-listing/feature_graphic_1024x500.png)
+<p align="center">
+  <img src="store/play-listing/feature_graphic_1024x500.png" alt="Dot Matrix Timer" width="100%" />
+</p>
 - True black background for AMOLED displays.
 - 6 x 10 dot matrix (60 dots, one dot per minute).
 - Neon green on black, monospace typography.
@@ -16,9 +18,11 @@ A single-screen Flutter countdown timer for mobile.
 
 ## Screenshots and demo
 
-![Timer screenshot](store/play-listing/screenshot_phone_02.png)
-
-[![Dot Matrix demo](store/play-listing/screenshot_phone_02.png)](https://youtube.com/shorts/PIaSFTInR-U?si=w2CMEDsfZ181_yr2)
+<p align="center">
+  <a href="https://youtube.com/shorts/PIaSFTInR-U?si=w2CMEDsfZ181_yr2">
+    <img src="store/play-listing/screenshot_phone_02.png" alt="Dot Matrix timer demo" width="260" />
+  </a>
+</p>
 
 [Watch the app in action on YouTube Shorts](https://youtube.com/shorts/PIaSFTInR-U?si=w2CMEDsfZ181_yr2)
 
