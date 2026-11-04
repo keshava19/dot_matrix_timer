@@ -2,6 +2,7 @@
 
 A single-screen Flutter countdown timer for mobile.
 
+![Dot Matrix Timer](store/play-listing/feature_graphic_1024x500.png)
 - True black background for AMOLED displays.
 - 6 x 10 dot matrix (60 dots, one dot per minute).
 - Neon green on black, monospace typography.
@@ -12,6 +13,14 @@ A single-screen Flutter countdown timer for mobile.
 - End state: 8 s eased flash + two chimes, then a 60 s calm "done" state; tap to dismiss.
 - Supports app backgrounding/resume and persisted timer restoration.
 - Android keeps the screen awake while a timer is active, then applies the burn-in reduction policy: brightness and readout intensity step down, unlit dots fade to black, and the dot grid shifts position; the display is allowed to sleep after the completed-timer state. Play start/end sounds with the `start.ogg`/`end.ogg` assets.
+
+## Screenshots and demo
+
+![Timer screenshot](store/play-listing/screenshot_phone_02.png)
+
+[![Dot Matrix demo](store/play-listing/screenshot_phone_02.png)](https://youtube.com/shorts/PIaSFTInR-U?si=w2CMEDsfZ181_yr2)
+
+[Watch the app in action on YouTube Shorts](https://youtube.com/shorts/PIaSFTInR-U?si=w2CMEDsfZ181_yr2)
 
 ## Development
 
