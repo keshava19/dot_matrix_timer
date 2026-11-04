@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.6 - 2026-11-04
+
+### Changed
+- Bumped version code from `12` to `13` for Play Store upload retry after version code `12` was already consumed.
+- Release candidate remains `com.keshava.dotmatrix` for Google Play closed testing.
+
 ## 1.3.5 - 2026-11-03
 
 ### Added
