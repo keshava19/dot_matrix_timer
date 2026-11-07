@@ -356,6 +356,7 @@ class _TimerScreenState extends State<TimerScreen> with WidgetsBindingObserver {
     await _persistStart();
     _setKeepScreenOn(true);
     _setLowRefresh(true);
+    unawaited(_setScreenBrightness(null));
     _applyBurnInState();
     _showNotificationForTimer();
     if (_notificationsAllowed) unawaited(_scheduleEndNotification());

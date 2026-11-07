@@ -6,7 +6,7 @@ Dot Matrix is a single-screen countdown timer designed for AMOLED displays.
 • Completion: an eased 8 s flash, two chimes, then a calm 60 s "done" state (tap to dismiss).
 • AMOLED-friendly: true black, burn-in reduction with dynamic brightness, unlit dots fading to black, pixel shifting, sleep after completion.
 • Background-aware: persisted timer restoration, ongoing notification countdown, completion alarm.
-• Android keeps the screen awake while active; brightness restores on pause.
+• Android keeps the screen awake while active; brightness restores on pause and completion notifications reopen the app when tapped.
 • No ads, no accounts, no data collection. Timer state stays on your device.
 
 Category: productivity / timers.

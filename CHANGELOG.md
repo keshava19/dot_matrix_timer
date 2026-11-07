@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.7 - 2026-11-08
+
+### Fixed
+- Timer startup no longer flashes brightness above the user's system brightness.
+- Warmup phase keeps system brightness instead of forcing a 0.30 override.
+- Tapping the “Timer finished” notification now opens the app.
+- Background completion notification lifecycle remains cancelled correctly on app resume.
+
+### Changed
+- Timer start explicitly restores system brightness before applying burn-in policy.
+
+### Tests
+- Added/updated burn-in warmup brightness unit tests.
+
+### Release
+- Version bump to 1.3.7+14 for Google Play.
+
 ## 1.3.6 - 2026-11-04
 
 ### Changed

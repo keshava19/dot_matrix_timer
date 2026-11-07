@@ -15,6 +15,8 @@ A single-screen Flutter countdown timer for mobile.
 - End state: 8 s eased flash + two chimes, then a 60 s calm "done" state; tap to dismiss.
 - Supports app backgrounding/resume and persisted timer restoration.
 - Android keeps the screen awake while a timer is active, then applies the burn-in reduction policy: brightness and readout intensity step down, unlit dots fade to black, and the dot grid shifts position; the display is allowed to sleep after the completed-timer state. Play start/end sounds with the `start.ogg`/`end.ogg` assets.
+- Android preserves system brightness during the burn-in warmup and restores system brightness when a timer starts.
+- Android completion notifications open the app when tapped.
 
 ## Screenshots and demo
 

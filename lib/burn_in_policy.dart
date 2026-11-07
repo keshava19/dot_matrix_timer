@@ -149,7 +149,7 @@ class BurnInPolicy {
               .clamp(0.0, 1.0) *
               0.102;
       return BurnInVisual(
-        brightnessOverride: touchWakeActive ? 0.30 : 0.30,
+        brightnessOverride: null,
         litIntensity: touchWakeActive ? 1.0 : 1.0,
         headIntensity: 1.0,
         unlitColor: Color.lerp(const Color(0xFF1A1A1A), Colors.black, 1.0 - unlitAlpha / 0.102)!,

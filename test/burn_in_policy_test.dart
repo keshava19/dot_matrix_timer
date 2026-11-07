@@ -39,7 +39,7 @@ void main() {
       reducedMotion: false,
       config: config,
     );
-    expect(atStart.brightnessOverride, 0.30);
+    expect(atStart.brightnessOverride, isNull);
     expect(atStart.pulse, isTrue);
     expect(atStart.litIntensity, 1.0);
     expect(atStart.headIntensity, 1.0);
@@ -55,6 +55,29 @@ void main() {
     );
     expect(afterFive.unlitColor, Colors.black);
     expect(afterFive.shiftIndex, 0);
+  });
+
+  test('running warmup keeps system brightness', () {
+    for (final elapsed in const [
+      Duration.zero,
+      Duration(seconds: 5),
+      Duration(seconds: 29),
+    ]) {
+      final visual = BurnInPolicy.calculate(
+        state: BurnInLifecycle.running,
+        elapsed: elapsed,
+        doneElapsed: Duration.zero,
+        timeSinceTouch: null,
+        reducedMotion: false,
+        config: config,
+      );
+      expect(visual.brightnessOverride, isNull,
+          reason: 'elapsed $elapsed should keep system brightness');
+      expect(visual.pulse, isTrue);
+      expect(visual.litIntensity, 1.0);
+      expect(visual.headIntensity, 1.0);
+      expect(visual.shiftIndex, 0);
+    }
   });
 
   test('running crosses 30 seconds into ambient phase', () {

@@ -2,6 +2,7 @@ package com.keshava.dotmatrix
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -75,6 +76,15 @@ class EndNotificationReceiver : BroadcastReceiver() {
         val soundUri = EndNotificationChannels.soundUri(context)
         EndNotificationChannels.ensure(context, soundUri)
 
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(context, EndNotificationChannels.ID)
             .setSmallIcon(R.drawable.ic_stat_dot_timer)
             .setColor(0xFF1B7F0E.toInt())
@@ -82,6 +92,7 @@ class EndNotificationReceiver : BroadcastReceiver() {
             .setContentText("Timer finished")
             .setSound(soundUri)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setContentIntent(contentIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
